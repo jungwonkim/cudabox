@@ -112,6 +112,8 @@ int main(int argc, char** argv) {
     _info("%-10s %lf", kernel, now() - t0);
   }
 
+  _cuerror(cudaMemcpy(h_a, d_a, MEM_SIZE, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_b, d_b, MEM_SIZE, cudaMemcpyDeviceToHost));
   _cuerror(cudaMemcpy(h_c, d_c, MEM_SIZE, cudaMemcpyDeviceToHost));
 
   _cuerror(cudaFree(d_a));
