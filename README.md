@@ -1,2 +1,2 @@
 # cudabox
-A simple application that includes running multiple CUDA kernels
+A simple application running multiple CUDA kernels
