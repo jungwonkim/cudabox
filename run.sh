@@ -2,20 +2,28 @@
 
 APP_CMD="./cudabox"
 
+HOSTNAME=`hostname -s`
 TODAY=`date +"%Y%m%d"`
 CTIME=`date +"%H%M%S"`
 
-if [ "$1" == "ncu" ]; then
-  NCU_CMD="ncu --target-processes all --clock-control none --set full -f"
-  OUTDIR=./ncu
-  mkdir -p $OUTDIR
-  PREFIX="$NCU_CMD -o $OUTDIR/cudabox-$TODAY-$CTIME"
-else
-  PREFIX=""
-fi
+GPCCLKS=(1980 1900 1800 1700 1600 1500 1400 1300 1200 1100 1000)
 
 export CUDA_MODULE_LOADING=EAGER
-set -x
-$PREFIX $APP_CMD 
-set +x
+
+for C in "${GPCCLKS[@]}"; do
+  echo "===== $C - $HOSTNAME-$TODAY-$CTIME ====="
+  if [ "$1" == "ncu" ]; then
+    NCU_CMD="ncu --target-processes all --clock-control none --set full -f"
+    OUTDIR=./ncu
+    mkdir -p $OUTDIR
+    PREFIX="$NCU_CMD -o $OUTDIR/cudabox-$C-$HOSTNAME-$TODAY-$CTIME"
+  else
+    PREFIX=""
+  fi
+  sudo nvidia-smi -lgc $C --mode 1
+  sleep 1
+  set -x
+  $PREFIX $APP_CMD 
+  set +x
+done
 
