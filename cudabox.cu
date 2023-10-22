@@ -11,21 +11,24 @@
 
 cudaError_t err;
 
-__global__ void saxpy(float* s, float a, float *x, float *y)
+template <typename T>
+__global__ void axpy(T* s, T a, T *x, T *y)
 {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   s[tid] = a * x[tid] + y[tid];
 }
 
-void run_saxpy(float* s, float a, float* x, float* y) {
-  int N = MEM_SIZE / sizeof(float);
+template <typename T>
+void run_axpy(T* s, T a, T* x, T* y) {
+  int N = MEM_SIZE / 8;
   int dim_block = 1024;
   int dim_grid  = N / dim_block;
 
-  saxpy<<<dim_grid, dim_block>>>(s, a, x, y);
+  axpy<T><<<dim_grid, dim_block>>>(s, a, x, y);
 }
 
-__global__ void sgemm(float* c, float* a, float* b, int k)
+template <typename T>
+__global__ void gemm(T* c, T* a, T* b, int k)
 {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -35,15 +38,17 @@ __global__ void sgemm(float* c, float* a, float* b, int k)
   }
 }
 
-void run_sgemm(float* c, float* a, float* b) {
+template <typename T>
+void run_gemm(T* c, T* a, T* b) {
   int N = 1024;
   dim3 dim_block(16, 16);
   dim3 dim_grid(N / 16, N / 16);
 
-  sgemm<<<dim_grid, dim_block>>>(c, a, b, N);
+  gemm<T><<<dim_grid, dim_block>>>(c, a, b, N);
 }
 
-__global__ void random(float *a, int n) {
+template <typename T>
+__global__ void rand(T *a, int n) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   curandState state;
   curand_init(0xdeadcafe, tid, 0, &state);
@@ -51,12 +56,13 @@ __global__ void random(float *a, int n) {
   a[i] += 1.0f;
 }
 
-void run_random(float* a) {
-  int N = MEM_SIZE / sizeof(float) / 64;
+template <typename T>
+void run_rand(T* a) {
+  int N = MEM_SIZE / 8 / 64;
   int dim_block = 1024;
   int dim_grid  = N / dim_block;
 
-  random<<<dim_grid, dim_block>>>(a, N);
+  rand<T><<<dim_grid, dim_block>>>(a, N);
 }
 
 double now() {
@@ -70,14 +76,14 @@ double now() {
 int main(int argc, char** argv) {
   double t0, t1;
 
-  float *h_a, *h_b, *h_c;
-  float *d_a, *d_b, *d_c;
+  void *h_a, *h_b, *h_c;
+  void *d_a, *d_b, *d_c;
 
   size_t cb = MEM_SIZE;
 
-  h_a = (float*) malloc(cb);
-  h_b = (float*) malloc(cb);
-  h_c = (float*) malloc(cb);
+  h_a = malloc(cb);
+  h_b = malloc(cb);
+  h_c = malloc(cb);
 
   _cuerror(cudaFree(0));
 
@@ -89,16 +95,22 @@ int main(int argc, char** argv) {
   _cuerror(cudaMemcpy(d_b, h_b, cb, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_c, h_c, cb, cudaMemcpyHostToDevice));
 
-  const char* kernels[3] = {"saxpy", "sgemm", "random"};
+  const char* kernels[] = {"iaxpy", "saxpy", "daxpy", "igemm", "sgemm", "dgemm", "irand", "srand", "drand"};
   int all = argc == 1;
   if (all) argc = 1 + sizeof(kernels) / sizeof(char*);
 
   for (int i = 1; i < argc; i++) {
     t0 = now();
     const char* kernel = all ? kernels[i - 1] : argv[i];
-    if      (strcmp(kernels[0], kernel) == 0) run_saxpy(d_c, 10.0f, d_a, d_b);
-    else if (strcmp(kernels[1], kernel) == 0) run_sgemm(d_c, d_a, d_b);
-    else if (strcmp(kernels[2], kernel) == 0) run_random(d_a);
+    if      (strcmp(kernels[0], kernel) == 0) run_axpy<int>   ((int*)    d_c, 10,   (int*)    d_a, (int*)    d_b);
+    else if (strcmp(kernels[1], kernel) == 0) run_axpy<float> ((float*)  d_c, 10.0, (float*)  d_a, (float*)  d_b);
+    else if (strcmp(kernels[2], kernel) == 0) run_axpy<double>((double*) d_c, 10.0, (double*) d_a, (double*) d_b);
+    else if (strcmp(kernels[3], kernel) == 0) run_gemm<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
+    else if (strcmp(kernels[4], kernel) == 0) run_gemm<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
+    else if (strcmp(kernels[5], kernel) == 0) run_gemm<double>((double*) d_c, (double*) d_a, (double*) d_b);
+    else if (strcmp(kernels[6], kernel) == 0) run_rand<int>   ((int*)    d_a);
+    else if (strcmp(kernels[7], kernel) == 0) run_rand<float> ((float*)  d_a);
+    else if (strcmp(kernels[8], kernel) == 0) run_rand<double>((double*) d_a);
     else printf("[%s:%d] %s\n", __FILE__, __LINE__, argv[i]);
     _cuerror(cudaGetLastError());
     _cuerror(cudaDeviceSynchronize());

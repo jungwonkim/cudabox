@@ -1,6 +1,6 @@
 #!/bin/bash
 
-APP_CMD="./cudabox saxpy sgemm random"
+APP_CMD="./cudabox"
 
 TODAY=`date +"%Y%m%d"`
 CTIME=`date +"%H%M%S"`
