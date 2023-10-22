@@ -15,4 +15,6 @@ else
   PREFIX=""
 fi
 
+export CUDA_MODULE_LOADING=EAGER
+
 $PREFIX $APP_CMD 

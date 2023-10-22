@@ -7,8 +7,9 @@
 #define _cuerror(err) do { if (err != cudaSuccess) { printf("[%s:%d:%s] err[%d][%s]\n", __SHORT_FILE__, __LINE__, __func__, err, cudaGetErrorString(err)); fflush(stdout); } } while (0)
 #define _timer(name, t0, t1) do { printf("[%s:%d:%s] %-10s timer[%lf]\n", __SHORT_FILE__, __LINE__, __func__, name, t1 - t0); fflush(stdout); } while (0)
 
+#define MEM_SIZE  (1 * 1024 * 1024 * 1024)
+
 cudaError_t err;
-size_t MEM_SIZE = 1 * 1024 * 1024 * 1024;
 
 __global__ void saxpy(float* s, float a, float *x, float *y)
 {
@@ -22,8 +23,6 @@ void run_saxpy(float* s, float a, float* x, float* y) {
   int dim_grid  = N / dim_block;
 
   saxpy<<<dim_grid, dim_block>>>(s, a, x, y);
-  _cuerror(cudaGetLastError());
-  _cuerror(cudaDeviceSynchronize());
 }
 
 __global__ void sgemm(float* c, float* a, float* b, int k)
@@ -37,13 +36,11 @@ __global__ void sgemm(float* c, float* a, float* b, int k)
 }
 
 void run_sgemm(float* c, float* a, float* b) {
-  int N = 8192;
+  int N = 1024;
   dim3 dim_block(16, 16);
   dim3 dim_grid(N / 16, N / 16);
 
   sgemm<<<dim_grid, dim_block>>>(c, a, b, N);
-  _cuerror(cudaGetLastError());
-  _cuerror(cudaDeviceSynchronize());
 }
 
 __global__ void random(float *a, int n) {
@@ -55,13 +52,11 @@ __global__ void random(float *a, int n) {
 }
 
 void run_random(float* a) {
-  int N = MEM_SIZE / sizeof(float);
+  int N = MEM_SIZE / sizeof(float) / 64;
   int dim_block = 1024;
   int dim_grid  = N / dim_block;
 
   random<<<dim_grid, dim_block>>>(a, N);
-  _cuerror(cudaGetLastError());
-  _cuerror(cudaDeviceSynchronize());
 }
 
 double now() {
@@ -94,17 +89,24 @@ int main(int argc, char** argv) {
   _cuerror(cudaMemcpy(d_b, h_b, cb, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_c, h_c, cb, cudaMemcpyHostToDevice));
 
+  const char* kernels[3] = {"saxpy", "sgemm", "random"};
+  int all = argc == 1;
+  if (all) argc = 1 + sizeof(kernels) / sizeof(char*);
+
   for (int i = 1; i < argc; i++) {
     t0 = now();
-    if (strcmp("saxpy", argv[i]) == 0) run_saxpy(d_c, 10.0f, d_a, d_b);
-    else if (strcmp("sgemm", argv[i]) == 0) run_sgemm(d_c, d_a, d_b);
-    else if (strcmp("random", argv[i]) == 0) run_random(d_a);
+    const char* kernel = all ? kernels[i - 1] : argv[i];
+    if      (strcmp(kernels[0], kernel) == 0) run_saxpy(d_c, 10.0f, d_a, d_b);
+    else if (strcmp(kernels[1], kernel) == 0) run_sgemm(d_c, d_a, d_b);
+    else if (strcmp(kernels[2], kernel) == 0) run_random(d_a);
     else printf("[%s:%d] %s\n", __FILE__, __LINE__, argv[i]);
+    _cuerror(cudaGetLastError());
+    _cuerror(cudaDeviceSynchronize());
     t1 = now();
-    _timer(argv[i], t0, t1);
+    _timer(kernel, t0, t1);
   }
 
-  _cuerror(cudaMemcpy(h_a, d_a, cb, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_c, d_c, cb, cudaMemcpyDeviceToHost));
 
   _cuerror(cudaFree(d_a));
   _cuerror(cudaFree(d_b));
