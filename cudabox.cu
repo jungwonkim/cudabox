@@ -105,10 +105,25 @@ __global__ void rand(T *a, int n) {
 
 template <typename T>
 void run_rand(T* a) {
-  int N = MEM_SIZE / 8;
+  int N = MEM_SIZE / 8 / 8;
   int B = 1024;
   int G = N / B;
   rand<T><<<G, B>>>(a, N);
+}
+
+template <typename T>
+__global__ void stvv(T *c, T *a, int stride) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int i = x * stride;
+  c[i] = a[i];
+}
+
+template <typename T>
+void run_stvv(T* c, T* a, int stride) {
+  int N = MEM_SIZE / 8 / stride;
+  int B = 1024;
+  int G = N / B;
+  stvv<T><<<G, B>>>(c, a, stride);
 }
 
 double now() {
@@ -125,6 +140,8 @@ int main(int argc, char** argv) {
 
   int *h_r;
   int *d_r;
+
+  int v_s = 2;
 
   if (argc > 1) MEM_SIZE = atol(argv[1]) * MEGA;;
 
@@ -159,6 +176,7 @@ int main(int argc, char** argv) {
     "igemv", "sgemv", "dgemv",
     "igemm", "sgemm", "dgemm",
     "irand", "srand", "drand",
+    "istvv", "fstvv", "dstvv",
   };
   int all = argc < 3;
   int nkernels = all ? sizeof(kernels) / sizeof(char*) : argc - 2;
@@ -184,6 +202,9 @@ int main(int argc, char** argv) {
     else if (strcmp(kernels[15], kernel) == 0) run_rand<int>   ((int*)    d_c);
     else if (strcmp(kernels[16], kernel) == 0) run_rand<float> ((float*)  d_c);
     else if (strcmp(kernels[17], kernel) == 0) run_rand<double>((double*) d_c);
+    else if (strcmp(kernels[18], kernel) == 0) run_stvv<int>   ((int*)    d_c, (int*)    d_a, v_s);
+    else if (strcmp(kernels[19], kernel) == 0) run_stvv<float> ((float*)  d_c, (float*)  d_a, v_s);
+    else if (strcmp(kernels[20], kernel) == 0) run_stvv<double>((double*) d_c, (double*) d_a, v_s);
     else { _info("%-10s no kernel", kernel); continue; }
     _cuerror(cudaGetLastError());
     _cuerror(cudaDeviceSynchronize());
