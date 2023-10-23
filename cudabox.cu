@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
@@ -48,7 +49,7 @@ template <typename T>
 __global__ void rand(T *a, int n) {
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   curandState state;
-  curand_init(0xdeadcafe, tid, 0, &state);
+  curand_init(0, tid, 0, &state);
   int i = curand(&state) % n;
   a[i] += 1.0f;
 }
@@ -59,6 +60,21 @@ void run_rand(T* a) {
   int B = 1024;
   int G = N / B;
   rand<T><<<G, B>>>(a, N);
+}
+
+template <typename T>
+__global__ void ivec(T *c, T *a, T *b, int* r) {
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  int rid = r[tid];
+  c[rid] = a[rid] + b[rid];
+}
+
+template <typename T>
+void run_ivec(T* c, T* a, T* b, int* r) {
+  int N = MEM_SIZE / 8;
+  int B = 1024;
+  int G = N / B;
+  ivec<T><<<G, B>>>(c, a, b, r);
 }
 
 double now() {
@@ -73,23 +89,35 @@ int main(int argc, char** argv) {
   void *h_a, *h_b, *h_c;
   void *d_a, *d_b, *d_c;
 
+  int *h_r;
+  int *d_r;
+
   h_a = malloc(MEM_SIZE);
   h_b = malloc(MEM_SIZE);
   h_c = malloc(MEM_SIZE);
+  h_r = (int*) malloc(MEM_SIZE);
 
   _cuerror(cudaFree(0));
 
   _cuerror(cudaMalloc(&d_a, MEM_SIZE));
   _cuerror(cudaMalloc(&d_b, MEM_SIZE));
   _cuerror(cudaMalloc(&d_c, MEM_SIZE));
+  _cuerror(cudaMalloc(&d_r, MEM_SIZE));
+
+  srand(0);
+  for (size_t i = 0; i < MEM_SIZE / sizeof(int); i++) {
+    h_r[i] = rand() % (MEM_SIZE / sizeof(double));
+  }
 
   _cuerror(cudaMemcpy(d_a, h_a, MEM_SIZE, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_b, h_b, MEM_SIZE, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_c, h_c, MEM_SIZE, cudaMemcpyHostToDevice));
+  _cuerror(cudaMemcpy(d_r, h_r, MEM_SIZE, cudaMemcpyHostToDevice));
 
   const char* kernels[] = { "iaxpy", "saxpy", "daxpy",
                             "igemm", "sgemm", "dgemm",
                             "irand", "srand", "drand",
+                            "iivec", "sivec", "divec",
                           };
   int all = argc == 1;
   int nkernels = all ? sizeof(kernels) / sizeof(char*) : argc - 1;
@@ -97,15 +125,18 @@ int main(int argc, char** argv) {
   for (int i = 0; i < nkernels; i++) {
     const char* kernel = all ? kernels[i] : argv[i + 1];
     double t0 = now();
-    if      (strcmp(kernels[0], kernel) == 0) run_axpy<int>   ((int*)    d_c, 10,   (int*)    d_a, (int*)    d_b);
-    else if (strcmp(kernels[1], kernel) == 0) run_axpy<float> ((float*)  d_c, 10.0, (float*)  d_a, (float*)  d_b);
-    else if (strcmp(kernels[2], kernel) == 0) run_axpy<double>((double*) d_c, 10.0, (double*) d_a, (double*) d_b);
-    else if (strcmp(kernels[3], kernel) == 0) run_gemm<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
-    else if (strcmp(kernels[4], kernel) == 0) run_gemm<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
-    else if (strcmp(kernels[5], kernel) == 0) run_gemm<double>((double*) d_c, (double*) d_a, (double*) d_b);
-    else if (strcmp(kernels[6], kernel) == 0) run_rand<int>   ((int*)    d_c);
-    else if (strcmp(kernels[7], kernel) == 0) run_rand<float> ((float*)  d_c);
-    else if (strcmp(kernels[8], kernel) == 0) run_rand<double>((double*) d_c);
+    if      (strcmp(kernels[ 0], kernel) == 0) run_axpy<int>   ((int*)    d_c, 10,   (int*)    d_a, (int*)    d_b);
+    else if (strcmp(kernels[ 1], kernel) == 0) run_axpy<float> ((float*)  d_c, 10.0, (float*)  d_a, (float*)  d_b);
+    else if (strcmp(kernels[ 2], kernel) == 0) run_axpy<double>((double*) d_c, 10.0, (double*) d_a, (double*) d_b);
+    else if (strcmp(kernels[ 3], kernel) == 0) run_gemm<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
+    else if (strcmp(kernels[ 4], kernel) == 0) run_gemm<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
+    else if (strcmp(kernels[ 5], kernel) == 0) run_gemm<double>((double*) d_c, (double*) d_a, (double*) d_b);
+    else if (strcmp(kernels[ 6], kernel) == 0) run_rand<int>   ((int*)    d_c);
+    else if (strcmp(kernels[ 7], kernel) == 0) run_rand<float> ((float*)  d_c);
+    else if (strcmp(kernels[ 8], kernel) == 0) run_rand<double>((double*) d_c);
+    else if (strcmp(kernels[ 9], kernel) == 0) run_ivec<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b, d_r);
+    else if (strcmp(kernels[10], kernel) == 0) run_ivec<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b, d_r);
+    else if (strcmp(kernels[11], kernel) == 0) run_ivec<double>((double*) d_c, (double*) d_a, (double*) d_b, d_r);
     else { _info("%-10s no kernel", kernel); continue; }
     _cuerror(cudaGetLastError());
     _cuerror(cudaDeviceSynchronize());
@@ -115,10 +146,12 @@ int main(int argc, char** argv) {
   _cuerror(cudaMemcpy(h_a, d_a, MEM_SIZE, cudaMemcpyDeviceToHost));
   _cuerror(cudaMemcpy(h_b, d_b, MEM_SIZE, cudaMemcpyDeviceToHost));
   _cuerror(cudaMemcpy(h_c, d_c, MEM_SIZE, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_r, d_r, MEM_SIZE, cudaMemcpyDeviceToHost));
 
   _cuerror(cudaFree(d_a));
   _cuerror(cudaFree(d_b));
   _cuerror(cudaFree(d_c));
+  _cuerror(cudaFree(d_r));
 
   return 0;
 }
