@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
   if (getenv("CUDABOX_MEMSIZE")) MEMSIZE = MEGA * atoll(getenv("CUDABOX_MEMSIZE"));
   if (getenv("CUDABOX_STRIDE")) STRIDE = atoi(getenv("CUDABOX_STRIDE"));
 
-  _info("CUDA Box: CUDABOX_MEMSIZE[%lu]MB CUDABOX_STRIDE[%d]", MEMSIZE / MEGA, STRIDE);
+  _info("CUDABOX_MEMSIZE[%lu]MB CUDABOX_STRIDE[%d]", MEMSIZE / MEGA, STRIDE);
 
   void *h_a, *h_b, *h_c;
   void *d_a, *d_b, *d_c;
@@ -177,13 +177,13 @@ int main(int argc, char** argv) {
     "igemv", "sgemv", "dgemv",
     "igemm", "sgemm", "dgemm",
     "irand", "srand", "drand",
-    "istvv", "fstvv", "dstvv",
+    "istvv", "fstvv", "dstvv", "cstvv", "sstvv",
   };
-  int all = argc < 3;
-  int nkernels = all ? sizeof(kernels) / sizeof(char*) : argc - 2;
+  int all = argc == 1;
+  int nkernels = all ? sizeof(kernels) / sizeof(char*) : argc - 1;
 
   for (int i = 0; i < nkernels; i++) {
-    const char* kernel = all ? kernels[i] : argv[i + 2];
+    const char* kernel = all ? kernels[i] : argv[i + 1];
     double t0 = now();
     if      (strcmp(kernels[ 0], kernel) == 0) run_comp<int>   ((int*)    d_c);
     else if (strcmp(kernels[ 1], kernel) == 0) run_comp<float> ((float*)  d_c);
@@ -206,6 +206,8 @@ int main(int argc, char** argv) {
     else if (strcmp(kernels[18], kernel) == 0) run_stvv<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
     else if (strcmp(kernels[19], kernel) == 0) run_stvv<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
     else if (strcmp(kernels[20], kernel) == 0) run_stvv<double>((double*) d_c, (double*) d_a, (double*) d_b);
+    else if (strcmp(kernels[21], kernel) == 0) run_stvv<char>  ((char*)   d_c, (char*)   d_a, (char*)   d_b);
+    else if (strcmp(kernels[22], kernel) == 0) run_stvv<short> ((short*)  d_c, (short*)  d_a, (short*)  d_b);
     else { _info("%-10s no kernel", kernel); continue; }
     _cuerror(cudaGetLastError());
     _cuerror(cudaDeviceSynchronize());
