@@ -9,10 +9,12 @@
 #define _info(fmt, ...) do { printf(fmt "\n", __VA_ARGS__); fflush(stdout); } while (0)
 #define _debug(fmt, ...) do { printf("D [%s:%d:%s] " fmt "\n", __SHORT_FILE__, __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
 #define MEGA (1024 * 1024UL)
+#define GIGA (1024 * MEGA)
 
 cudaError_t err;
 
-size_t MEM_SIZE = 1 * 1024 * MEGA;
+size_t MEMSIZE = 1 * 1024 * MEGA;
+int STRIDE = 2;
 
 template <typename T>
 __global__ void comp(T* a) {
@@ -26,7 +28,7 @@ __global__ void comp(T* a) {
 
 template <typename T>
 void run_comp(T* a) {
-  int N = MEM_SIZE / 8;
+  int N = MEMSIZE / 8;
   int B = 1024;
   int G = N / B;
   comp<T><<<G, B>>>(a);
@@ -40,7 +42,7 @@ __global__ void gevv(T* c, T *a, T *b) {
 
 template <typename T>
 void run_gevv(T* c, T* a, T* b) {
-  int N = MEM_SIZE / 8;
+  int N = MEMSIZE / 8;
   int B = 1024;
   int G = N / B;
   gevv<T><<<G, B>>>(c, a, b);
@@ -55,7 +57,7 @@ __global__ void irvv(T *c, T *a, T *b, int* r) {
 
 template <typename T>
 void run_irvv(T* c, T* a, T* b, int* r) {
-  int N = MEM_SIZE / 8;
+  int N = MEMSIZE / 8;
   int B = 1024;
   int G = N / B;
   irvv<T><<<G, B>>>(c, a, b, r);
@@ -71,7 +73,7 @@ __global__ void gemv(T* c, T* a, T* b, int k) {
 
 template <typename T>
 void run_gemv(T* c, T* a, T* b) {
-  int N = MEM_SIZE / 1024 / 256;
+  int N = MEMSIZE / 1024 / 256;
   int B = 1024;
   int G = N / B;
   gemv<T><<<G, B>>>(c, a, b, N);
@@ -88,7 +90,7 @@ __global__ void gemm(T* c, T* a, T* b, int k) {
 
 template <typename T>
 void run_gemm(T* c, T* a, T* b) {
-  int N = MEM_SIZE / 1024 / 256;
+  int N = MEMSIZE / 1024 / 256;
   dim3 B(32, 32);
   dim3 G(N / 32, N / 32);
   gemm<T><<<G, B>>>(c, a, b, N);
@@ -105,25 +107,25 @@ __global__ void rand(T *a, int n) {
 
 template <typename T>
 void run_rand(T* a) {
-  int N = MEM_SIZE / 8 / 8;
+  int N = MEMSIZE / 8 / 8;
   int B = 1024;
   int G = N / B;
   rand<T><<<G, B>>>(a, N);
 }
 
 template <typename T>
-__global__ void stvv(T *c, T *a, int stride) {
+__global__ void stvv(T *c, T *a, T *b, int stride) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int i = x * stride;
-  c[i] = a[i];
+  c[i] = a[i] + b[i];
 }
 
 template <typename T>
-void run_stvv(T* c, T* a, int stride) {
-  int N = MEM_SIZE / 8 / stride;
+void run_stvv(T* c, T* a, T* b) {
+  int N = MEMSIZE / 8 / STRIDE;
   int B = 1024;
   int G = N / B;
-  stvv<T><<<G, B>>>(c, a, stride);
+  stvv<T><<<G, B>>>(c, a, b, STRIDE);
 }
 
 double now() {
@@ -135,39 +137,38 @@ double now() {
 }
 
 int main(int argc, char** argv) {
+  if (getenv("CUDABOX_MEMSIZE")) MEMSIZE = MEGA * atoll(getenv("CUDABOX_MEMSIZE"));
+  if (getenv("CUDABOX_STRIDE")) STRIDE = atoi(getenv("CUDABOX_STRIDE"));
+
+  _info("CUDA Box: CUDABOX_MEMSIZE[%lu]MB CUDABOX_STRIDE[%d]", MEMSIZE / MEGA, STRIDE);
+
   void *h_a, *h_b, *h_c;
   void *d_a, *d_b, *d_c;
 
   int *h_r;
   int *d_r;
 
-  int v_s = 2;
-
-  if (argc > 1) MEM_SIZE = atol(argv[1]) * MEGA;;
-
-  _info("%-10s [%lu]MB [%.2lf]GB", "MEM_SIZE", MEM_SIZE / MEGA, (double) MEM_SIZE / MEGA / 1024);
-
-  h_a = malloc(MEM_SIZE);
-  h_b = malloc(MEM_SIZE);
-  h_c = malloc(MEM_SIZE);
-  h_r = (int*) malloc(MEM_SIZE);
+  h_a = malloc(MEMSIZE);
+  h_b = malloc(MEMSIZE);
+  h_c = malloc(MEMSIZE);
+  h_r = (int*) malloc(MEMSIZE);
 
   srand(0);
-  for (size_t i = 0; i < MEM_SIZE / sizeof(int); i++) {
-    h_r[i] = rand() % (MEM_SIZE / sizeof(double));
+  for (size_t i = 0; i < MEMSIZE / sizeof(int); i++) {
+    h_r[i] = rand() % (MEMSIZE / sizeof(double));
   }
 
   _cuerror(cudaFree(0));
 
-  _cuerror(cudaMalloc(&d_a, MEM_SIZE));
-  _cuerror(cudaMalloc(&d_b, MEM_SIZE));
-  _cuerror(cudaMalloc(&d_c, MEM_SIZE));
-  _cuerror(cudaMalloc(&d_r, MEM_SIZE));
+  _cuerror(cudaMalloc(&d_a, MEMSIZE));
+  _cuerror(cudaMalloc(&d_b, MEMSIZE));
+  _cuerror(cudaMalloc(&d_c, MEMSIZE));
+  _cuerror(cudaMalloc(&d_r, MEMSIZE));
 
-  _cuerror(cudaMemcpy(d_a, h_a, MEM_SIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_b, h_b, MEM_SIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_c, h_c, MEM_SIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_r, h_r, MEM_SIZE, cudaMemcpyHostToDevice));
+  _cuerror(cudaMemcpy(d_a, h_a, MEMSIZE, cudaMemcpyHostToDevice));
+  _cuerror(cudaMemcpy(d_b, h_b, MEMSIZE, cudaMemcpyHostToDevice));
+  _cuerror(cudaMemcpy(d_c, h_c, MEMSIZE, cudaMemcpyHostToDevice));
+  _cuerror(cudaMemcpy(d_r, h_r, MEMSIZE, cudaMemcpyHostToDevice));
 
   const char* kernels[] = {
     "icomp", "scomp", "dcomp",
@@ -202,19 +203,19 @@ int main(int argc, char** argv) {
     else if (strcmp(kernels[15], kernel) == 0) run_rand<int>   ((int*)    d_c);
     else if (strcmp(kernels[16], kernel) == 0) run_rand<float> ((float*)  d_c);
     else if (strcmp(kernels[17], kernel) == 0) run_rand<double>((double*) d_c);
-    else if (strcmp(kernels[18], kernel) == 0) run_stvv<int>   ((int*)    d_c, (int*)    d_a, v_s);
-    else if (strcmp(kernels[19], kernel) == 0) run_stvv<float> ((float*)  d_c, (float*)  d_a, v_s);
-    else if (strcmp(kernels[20], kernel) == 0) run_stvv<double>((double*) d_c, (double*) d_a, v_s);
+    else if (strcmp(kernels[18], kernel) == 0) run_stvv<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
+    else if (strcmp(kernels[19], kernel) == 0) run_stvv<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
+    else if (strcmp(kernels[20], kernel) == 0) run_stvv<double>((double*) d_c, (double*) d_a, (double*) d_b);
     else { _info("%-10s no kernel", kernel); continue; }
     _cuerror(cudaGetLastError());
     _cuerror(cudaDeviceSynchronize());
     _info("%-10s %lf", kernel, now() - t0);
   }
 
-  _cuerror(cudaMemcpy(h_a, d_a, MEM_SIZE, cudaMemcpyDeviceToHost));
-  _cuerror(cudaMemcpy(h_b, d_b, MEM_SIZE, cudaMemcpyDeviceToHost));
-  _cuerror(cudaMemcpy(h_c, d_c, MEM_SIZE, cudaMemcpyDeviceToHost));
-  _cuerror(cudaMemcpy(h_r, d_r, MEM_SIZE, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_a, d_a, MEMSIZE, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_b, d_b, MEMSIZE, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_c, d_c, MEMSIZE, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_r, d_r, MEMSIZE, cudaMemcpyDeviceToHost));
 
   _cuerror(cudaFree(d_a));
   _cuerror(cudaFree(d_b));
