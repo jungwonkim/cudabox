@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 cudaError_t err;
 
 size_t MEMSIZE = 1 * 1024 * MEGA;
+int BLOCKSIZE = 1024;
 int STRIDE = 2;
 
 template <typename T>
@@ -29,7 +31,7 @@ __global__ void comp(T* a) {
 template <typename T>
 void run_comp(T* a) {
   int N = MEMSIZE / 8;
-  int B = 1024;
+  int B = BLOCKSIZE;
   int G = N / B;
   comp<T><<<G, B>>>(a);
 }
@@ -43,7 +45,7 @@ __global__ void gevv(T* c, T *a, T *b) {
 template <typename T>
 void run_gevv(T* c, T* a, T* b) {
   int N = MEMSIZE / 8;
-  int B = 1024;
+  int B = BLOCKSIZE;
   int G = N / B;
   gevv<T><<<G, B>>>(c, a, b);
 }
@@ -58,7 +60,7 @@ __global__ void irvv(T *c, T *a, T *b, int* r) {
 template <typename T>
 void run_irvv(T* c, T* a, T* b, int* r) {
   int N = MEMSIZE / 8;
-  int B = 1024;
+  int B = BLOCKSIZE;
   int G = N / B;
   irvv<T><<<G, B>>>(c, a, b, r);
 }
@@ -73,8 +75,8 @@ __global__ void gemv(T* c, T* a, T* b, int k) {
 
 template <typename T>
 void run_gemv(T* c, T* a, T* b) {
-  int N = MEMSIZE / 1024 / 256;
-  int B = 1024;
+  int N = sqrt(MEMSIZE);
+  int B = 64;
   int G = N / B;
   gemv<T><<<G, B>>>(c, a, b, N);
 }
@@ -90,7 +92,7 @@ __global__ void gemm(T* c, T* a, T* b, int k) {
 
 template <typename T>
 void run_gemm(T* c, T* a, T* b) {
-  int N = MEMSIZE / 1024 / 256;
+  int N = sqrt(MEMSIZE / 64);
   dim3 B(32, 32);
   dim3 G(N / 32, N / 32);
   gemm<T><<<G, B>>>(c, a, b, N);
@@ -137,13 +139,14 @@ double now() {
 }
 
 int main(int argc, char** argv) {
-  if (getenv("CUDABOX_MEMSIZE")) MEMSIZE = MEGA * atoll(getenv("CUDABOX_MEMSIZE"));
-  if (getenv("CUDABOX_STRIDE")) STRIDE = atoi(getenv("CUDABOX_STRIDE"));
+  if (getenv("CUDABOX_MEMSIZE"))    MEMSIZE = atoll(getenv("CUDABOX_MEMSIZE")) * MEGA;
+  if (getenv("CUDABOX_BLOCKSIZE"))  BLOCKSIZE = atoi(getenv("CUDABOX_BLOCKSIZE"));
+  if (getenv("CUDABOX_STRIDE"))     STRIDE = atoi(getenv("CUDABOX_STRIDE"));
 
-  _info("CUDABOX_MEMSIZE[%lu]MB CUDABOX_STRIDE[%d]", MEMSIZE / MEGA, STRIDE);
+  _info("CUDABOX_$ MEMSIZE[%lu]MB BLOCKSIZE[%d] STRIDE[%d]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE);
 
-  void *h_a, *h_b, *h_c;
-  void *d_a, *d_b, *d_c;
+  void *h_a, *h_b, *h_c, *h_16x;
+  void *d_a, *d_b, *d_c, *d_16x;
 
   int *h_r;
   int *d_r;
@@ -152,6 +155,7 @@ int main(int argc, char** argv) {
   h_b = malloc(MEMSIZE);
   h_c = malloc(MEMSIZE);
   h_r = (int*) malloc(MEMSIZE);
+  h_16x = malloc(16 * MEMSIZE);
 
   srand(0);
   for (size_t i = 0; i < MEMSIZE / sizeof(int); i++) {
@@ -163,12 +167,15 @@ int main(int argc, char** argv) {
   _cuerror(cudaMalloc(&d_a, MEMSIZE));
   _cuerror(cudaMalloc(&d_b, MEMSIZE));
   _cuerror(cudaMalloc(&d_c, MEMSIZE));
+  _cuerror(cudaMalloc(&d_c, MEMSIZE));
   _cuerror(cudaMalloc(&d_r, MEMSIZE));
+  _cuerror(cudaMalloc(&d_16x, 16 * MEMSIZE));
 
   _cuerror(cudaMemcpy(d_a, h_a, MEMSIZE, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_b, h_b, MEMSIZE, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_c, h_c, MEMSIZE, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_r, h_r, MEMSIZE, cudaMemcpyHostToDevice));
+  _cuerror(cudaMemcpy(d_16x, h_16x, 16 * MEMSIZE, cudaMemcpyHostToDevice));
 
   const char* kernels[] = {
     "icomp", "scomp", "dcomp",
@@ -177,7 +184,7 @@ int main(int argc, char** argv) {
     "igemv", "sgemv", "dgemv",
     "igemm", "sgemm", "dgemm",
     "irand", "srand", "drand",
-    "istvv", "fstvv", "dstvv", "cstvv", "sstvv",
+    "istvv", "fstvv", "dstvv",
   };
   int all = argc == 1;
   int nkernels = all ? sizeof(kernels) / sizeof(char*) : argc - 1;
@@ -194,9 +201,9 @@ int main(int argc, char** argv) {
     else if (strcmp(kernels[ 6], kernel) == 0) run_irvv<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b, d_r);
     else if (strcmp(kernels[ 7], kernel) == 0) run_irvv<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b, d_r);
     else if (strcmp(kernels[ 8], kernel) == 0) run_irvv<double>((double*) d_c, (double*) d_a, (double*) d_b, d_r);
-    else if (strcmp(kernels[ 9], kernel) == 0) run_gemv<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
-    else if (strcmp(kernels[10], kernel) == 0) run_gemv<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
-    else if (strcmp(kernels[11], kernel) == 0) run_gemv<double>((double*) d_c, (double*) d_a, (double*) d_b);
+    else if (strcmp(kernels[ 9], kernel) == 0) run_gemv<int>   ((int*)    d_c, (int*)    d_16x, (int*)    d_b);
+    else if (strcmp(kernels[10], kernel) == 0) run_gemv<float> ((float*)  d_c, (float*)  d_16x, (float*)  d_b);
+    else if (strcmp(kernels[11], kernel) == 0) run_gemv<double>((double*) d_c, (double*) d_16x, (double*) d_b);
     else if (strcmp(kernels[12], kernel) == 0) run_gemm<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
     else if (strcmp(kernels[13], kernel) == 0) run_gemm<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
     else if (strcmp(kernels[14], kernel) == 0) run_gemm<double>((double*) d_c, (double*) d_a, (double*) d_b);
@@ -214,15 +221,19 @@ int main(int argc, char** argv) {
     _info("%-10s %lf", kernel, now() - t0);
   }
 
+#ifdef CUDABOX_D2H
   _cuerror(cudaMemcpy(h_a, d_a, MEMSIZE, cudaMemcpyDeviceToHost));
   _cuerror(cudaMemcpy(h_b, d_b, MEMSIZE, cudaMemcpyDeviceToHost));
   _cuerror(cudaMemcpy(h_c, d_c, MEMSIZE, cudaMemcpyDeviceToHost));
   _cuerror(cudaMemcpy(h_r, d_r, MEMSIZE, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_16x, d_16x, 16 * MEMSIZE, cudaMemcpyDeviceToHost));
+#endif
 
   _cuerror(cudaFree(d_a));
   _cuerror(cudaFree(d_b));
   _cuerror(cudaFree(d_c));
   _cuerror(cudaFree(d_r));
+  _cuerror(cudaFree(d_16x));
 
   return 0;
 }

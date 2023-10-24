@@ -1,15 +1,15 @@
 #!/bin/bash
 
 APP_CMD="./cudabox"
-APP_OPT="1024 icomp scomp dcomp"
-APP_OPT="1024 istvv fstvv dstvv"
+APP_OPT="istvv fstvv dstvv"
+APP_OPT=""
 
 HOSTNAME=`hostname -s`
 TODAY=`date +"%Y%m%d"`
 CTIME=`date +"%H%M%S"`
 
 GPCCLKS=(1980 1900 1800 1700 1600 1500 1400 1300 1200 1100 1000)
-GPCCLKS=(1980)
+GPCCLKS=(1980 1000)
 
 export CUDA_MODULE_LOADING=EAGER
 
