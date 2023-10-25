@@ -5,14 +5,29 @@
 #include <sys/time.h>
 #include <curand_kernel.h>
 
-#define __SHORT_FILE__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
-#define _cuerror(err) do { if (err != cudaSuccess) { printf("[%s:%d:%s] err[%d][%s]\n", __SHORT_FILE__, __LINE__, __func__, err, cudaGetErrorString(err)); fflush(stdout); } } while (0)
+#define _cuerror(call) do { cudaError_t err = call; if (err != cudaSuccess) { printf("[%d:%s] CUDA_ERROR[%d] %s\n", __LINE__, __func__, err, cudaGetErrorString(err)); fflush(stdout); } } while (0)
 #define _info(fmt, ...) do { printf(fmt "\n", __VA_ARGS__); fflush(stdout); } while (0)
-#define _debug(fmt, ...) do { printf("D [%s:%d:%s] " fmt "\n", __SHORT_FILE__, __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
+#define _debug(fmt, ...) do { printf("D [%d:%s] " fmt "\n", __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
 #define MEGA (1024 * 1024UL)
-#define GIGA (1024 * MEGA)
 
-cudaError_t err;
+#define RUN_KERNEL_INIT() int kernel_idx = 0; int kernel_found = 0;
+#define RUN_KERNEL1(FUNC_NAME, ARG1) \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1); kernel_found = 1; } \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1); kernel_found = 1; } \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1); kernel_found = 1; } 
+#define RUN_KERNEL2(FUNC_NAME, ARG1, ARG2) \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2); kernel_found = 1; } \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2); kernel_found = 1; } \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2); kernel_found = 1; }
+#define RUN_KERNEL3(FUNC_NAME, ARG1, ARG2, ARG3) \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2, (int*)    ARG3); kernel_found = 1; } \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2, (float*)  ARG3); kernel_found = 1; } \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2, (double*) ARG3); kernel_found = 1; }
+#define RUN_KERNEL4(FUNC_NAME, ARG1, ARG2, ARG3, ARG4) \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2, (int*)    ARG3, ARG4); kernel_found = 1; } \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2, (float*)  ARG3, ARG4); kernel_found = 1; } \
+    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2, (double*) ARG3, ARG4); kernel_found = 1; }
+#define RUN_KERNEL_CHECK() { if (!kernel_found) { _info("%-10s no kernel", kernel); continue; } }
 
 size_t MEMSIZE = 1 * 1024 * MEGA;
 int BLOCKSIZE = 1024;
@@ -20,6 +35,24 @@ int STRIDE = 2;
 
 template <typename T>
 __global__ void comp(T* a) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  T sum = x;
+  for (int i = 0; i < blockDim.x / 4; i++) {
+    sum += i * (i + 13) / (i - 7);
+  }
+  a[x] = sum;
+}
+
+template <typename T>
+void run_comp(T* a) {
+  int N = MEMSIZE / sizeof(double);
+  int B = BLOCKSIZE;
+  int G = N / B;
+  comp<T><<<G, B>>>(a);
+}
+
+template <typename T>
+__global__ void cudf(T* a) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   T sum = 0;
   for (int i = 0; i < blockDim.x / 4; i++) {
@@ -29,11 +62,11 @@ __global__ void comp(T* a) {
 }
 
 template <typename T>
-void run_comp(T* a) {
-  int N = MEMSIZE / 8;
+void run_cudf(T* a) {
+  int N = MEMSIZE / sizeof(double);
   int B = BLOCKSIZE;
   int G = N / B;
-  comp<T><<<G, B>>>(a);
+  cudf<T><<<G, B>>>(a);
 }
 
 template <typename T>
@@ -44,7 +77,7 @@ __global__ void gevv(T* c, T *a, T *b) {
 
 template <typename T>
 void run_gevv(T* c, T* a, T* b) {
-  int N = MEMSIZE / 8;
+  int N = MEMSIZE / sizeof(double);
   int B = BLOCKSIZE;
   int G = N / B;
   gevv<T><<<G, B>>>(c, a, b);
@@ -59,10 +92,25 @@ __global__ void irvv(T *c, T *a, T *b, int* r) {
 
 template <typename T>
 void run_irvv(T* c, T* a, T* b, int* r) {
-  int N = MEMSIZE / 8;
+  int N = MEMSIZE / sizeof(double);
   int B = BLOCKSIZE;
   int G = N / B;
   irvv<T><<<G, B>>>(c, a, b, r);
+}
+
+template <typename T>
+__global__ void isvv(T *c, T *a, T *b, int* s) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int i = s[x];
+  c[i] = a[i] + b[i];
+}
+
+template <typename T>
+void run_isvv(T* c, T* a, T* b, int* s) {
+  int N = MEMSIZE / sizeof(double);
+  int B = BLOCKSIZE;
+  int G = N / B;
+  isvv<T><<<G, B>>>(c, a, b, s);
 }
 
 template <typename T>
@@ -109,7 +157,7 @@ __global__ void rand(T *a, int n) {
 
 template <typename T>
 void run_rand(T* a) {
-  int N = MEMSIZE / 8 / 8;
+  int N = MEMSIZE / sizeof(double) / 8;
   int B = 1024;
   int G = N / B;
   rand<T><<<G, B>>>(a, N);
@@ -124,7 +172,7 @@ __global__ void stvv(T *c, T *a, T *b, int stride) {
 
 template <typename T>
 void run_stvv(T* c, T* a, T* b) {
-  int N = MEMSIZE / 8 / STRIDE;
+  int N = MEMSIZE / sizeof(double) / STRIDE;
   int B = 1024;
   int G = N / B;
   stvv<T><<<G, B>>>(c, a, b, STRIDE);
@@ -145,21 +193,23 @@ int main(int argc, char** argv) {
 
   _info("CUDABOX_$ MEMSIZE[%lu]MB BLOCKSIZE[%d] STRIDE[%d]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE);
 
-  void *h_a, *h_b, *h_c, *h_16x;
-  void *d_a, *d_b, *d_c, *d_16x;
+  void *h_a, *h_b, *h_c, *h_a16;
+  void *d_a, *d_b, *d_c, *d_a16;
 
-  int *h_r;
-  int *d_r;
+  int *h_r, *h_s;
+  int *d_r, *d_s;
 
   h_a = malloc(MEMSIZE);
   h_b = malloc(MEMSIZE);
   h_c = malloc(MEMSIZE);
   h_r = (int*) malloc(MEMSIZE);
-  h_16x = malloc(16 * MEMSIZE);
+  h_s = (int*) malloc(MEMSIZE);
+  h_a16 = malloc(16 * MEMSIZE);
 
   srand(0);
   for (size_t i = 0; i < MEMSIZE / sizeof(int); i++) {
     h_r[i] = rand() % (MEMSIZE / sizeof(double));
+    h_s[i] = i;
   }
 
   _cuerror(cudaFree(0));
@@ -169,22 +219,26 @@ int main(int argc, char** argv) {
   _cuerror(cudaMalloc(&d_c, MEMSIZE));
   _cuerror(cudaMalloc(&d_c, MEMSIZE));
   _cuerror(cudaMalloc(&d_r, MEMSIZE));
-  _cuerror(cudaMalloc(&d_16x, 16 * MEMSIZE));
+  _cuerror(cudaMalloc(&d_s, MEMSIZE));
+  _cuerror(cudaMalloc(&d_a16, 16 * MEMSIZE));
 
   _cuerror(cudaMemcpy(d_a, h_a, MEMSIZE, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_b, h_b, MEMSIZE, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_c, h_c, MEMSIZE, cudaMemcpyHostToDevice));
   _cuerror(cudaMemcpy(d_r, h_r, MEMSIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_16x, h_16x, 16 * MEMSIZE, cudaMemcpyHostToDevice));
+  _cuerror(cudaMemcpy(d_s, h_s, MEMSIZE, cudaMemcpyHostToDevice));
+  _cuerror(cudaMemcpy(d_a16, h_a16, 16 * MEMSIZE, cudaMemcpyHostToDevice));
 
   const char* kernels[] = {
     "icomp", "scomp", "dcomp",
+    "icudf", "scudf", "dcudf",
     "igevv", "sgevv", "dgevv",
+    "istvv", "fstvv", "dstvv",
     "iirvv", "sirvv", "dirvv",
+    "iisvv", "sisvv", "disvv",
     "igemv", "sgemv", "dgemv",
     "igemm", "sgemm", "dgemm",
     "irand", "srand", "drand",
-    "istvv", "fstvv", "dstvv",
   };
   int all = argc == 1;
   int nkernels = all ? sizeof(kernels) / sizeof(char*) : argc - 1;
@@ -192,30 +246,17 @@ int main(int argc, char** argv) {
   for (int i = 0; i < nkernels; i++) {
     const char* kernel = all ? kernels[i] : argv[i + 1];
     double t0 = now();
-    if      (strcmp(kernels[ 0], kernel) == 0) run_comp<int>   ((int*)    d_c);
-    else if (strcmp(kernels[ 1], kernel) == 0) run_comp<float> ((float*)  d_c);
-    else if (strcmp(kernels[ 2], kernel) == 0) run_comp<double>((double*) d_c);
-    else if (strcmp(kernels[ 3], kernel) == 0) run_gevv<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
-    else if (strcmp(kernels[ 4], kernel) == 0) run_gevv<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
-    else if (strcmp(kernels[ 5], kernel) == 0) run_gevv<double>((double*) d_c, (double*) d_a, (double*) d_b);
-    else if (strcmp(kernels[ 6], kernel) == 0) run_irvv<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b, d_r);
-    else if (strcmp(kernels[ 7], kernel) == 0) run_irvv<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b, d_r);
-    else if (strcmp(kernels[ 8], kernel) == 0) run_irvv<double>((double*) d_c, (double*) d_a, (double*) d_b, d_r);
-    else if (strcmp(kernels[ 9], kernel) == 0) run_gemv<int>   ((int*)    d_c, (int*)    d_16x, (int*)    d_b);
-    else if (strcmp(kernels[10], kernel) == 0) run_gemv<float> ((float*)  d_c, (float*)  d_16x, (float*)  d_b);
-    else if (strcmp(kernels[11], kernel) == 0) run_gemv<double>((double*) d_c, (double*) d_16x, (double*) d_b);
-    else if (strcmp(kernels[12], kernel) == 0) run_gemm<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
-    else if (strcmp(kernels[13], kernel) == 0) run_gemm<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
-    else if (strcmp(kernels[14], kernel) == 0) run_gemm<double>((double*) d_c, (double*) d_a, (double*) d_b);
-    else if (strcmp(kernels[15], kernel) == 0) run_rand<int>   ((int*)    d_c);
-    else if (strcmp(kernels[16], kernel) == 0) run_rand<float> ((float*)  d_c);
-    else if (strcmp(kernels[17], kernel) == 0) run_rand<double>((double*) d_c);
-    else if (strcmp(kernels[18], kernel) == 0) run_stvv<int>   ((int*)    d_c, (int*)    d_a, (int*)    d_b);
-    else if (strcmp(kernels[19], kernel) == 0) run_stvv<float> ((float*)  d_c, (float*)  d_a, (float*)  d_b);
-    else if (strcmp(kernels[20], kernel) == 0) run_stvv<double>((double*) d_c, (double*) d_a, (double*) d_b);
-    else if (strcmp(kernels[21], kernel) == 0) run_stvv<char>  ((char*)   d_c, (char*)   d_a, (char*)   d_b);
-    else if (strcmp(kernels[22], kernel) == 0) run_stvv<short> ((short*)  d_c, (short*)  d_a, (short*)  d_b);
-    else { _info("%-10s no kernel", kernel); continue; }
+    RUN_KERNEL_INIT();
+    RUN_KERNEL1(run_comp, d_c);
+    RUN_KERNEL1(run_cudf, d_c);
+    RUN_KERNEL3(run_gevv, d_c, d_a, d_b);
+    RUN_KERNEL3(run_stvv, d_c, d_a, d_b);
+    RUN_KERNEL4(run_irvv, d_c, d_a, d_b, d_r);
+    RUN_KERNEL4(run_isvv, d_c, d_a, d_b, d_s);
+    RUN_KERNEL3(run_gemv, d_c, d_a16, d_b);
+    RUN_KERNEL3(run_gemm, d_c, d_a, d_b);
+    RUN_KERNEL1(run_rand, d_c);
+    RUN_KERNEL_CHECK();
     _cuerror(cudaGetLastError());
     _cuerror(cudaDeviceSynchronize());
     _info("%-10s %lf", kernel, now() - t0);
@@ -225,15 +266,15 @@ int main(int argc, char** argv) {
   _cuerror(cudaMemcpy(h_a, d_a, MEMSIZE, cudaMemcpyDeviceToHost));
   _cuerror(cudaMemcpy(h_b, d_b, MEMSIZE, cudaMemcpyDeviceToHost));
   _cuerror(cudaMemcpy(h_c, d_c, MEMSIZE, cudaMemcpyDeviceToHost));
-  _cuerror(cudaMemcpy(h_r, d_r, MEMSIZE, cudaMemcpyDeviceToHost));
-  _cuerror(cudaMemcpy(h_16x, d_16x, 16 * MEMSIZE, cudaMemcpyDeviceToHost));
+  _cuerror(cudaMemcpy(h_a16, d_a16, 16 * MEMSIZE, cudaMemcpyDeviceToHost));
 #endif
 
   _cuerror(cudaFree(d_a));
   _cuerror(cudaFree(d_b));
   _cuerror(cudaFree(d_c));
   _cuerror(cudaFree(d_r));
-  _cuerror(cudaFree(d_16x));
+  _cuerror(cudaFree(d_s));
+  _cuerror(cudaFree(d_a16));
 
   return 0;
 }
