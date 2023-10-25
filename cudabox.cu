@@ -187,11 +187,11 @@ double now() {
 }
 
 int main(int argc, char** argv) {
-  if (getenv("CUDABOX_MEMSIZE"))    MEMSIZE = atoll(getenv("CUDABOX_MEMSIZE")) * MEGA;
+  if (getenv("CUDABOX_MEMSIZE"))    MEMSIZE   = atoi(getenv("CUDABOX_MEMSIZE")) * MEGA;
   if (getenv("CUDABOX_BLOCKSIZE"))  BLOCKSIZE = atoi(getenv("CUDABOX_BLOCKSIZE"));
-  if (getenv("CUDABOX_STRIDE"))     STRIDE = atoi(getenv("CUDABOX_STRIDE"));
+  if (getenv("CUDABOX_STRIDE"))     STRIDE    = atoi(getenv("CUDABOX_STRIDE"));
 
-  _info("CUDABOX_$ MEMSIZE[%lu]MB BLOCKSIZE[%d] STRIDE[%d]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE);
+  _info("CUDABOX_$ MEMSIZE[%zu]MB BLOCKSIZE[%d] STRIDE[%d]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE);
 
   void *h_a, *h_b, *h_c, *h_a16;
   void *d_a, *d_b, *d_c, *d_a16;
