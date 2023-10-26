@@ -3,6 +3,7 @@
 APP="./cudabox"
 APP_CMD="istvv fstvv dstvv"
 APP_CMD="igemv sgemv dgemv"
+APP_CMD=""
 
 HOSTNAME=`hostname -s`
 TODAY=`date +"%Y%m%d"`
@@ -15,6 +16,7 @@ GPCCLKS=(1980 1900 1800 1700 1600 1500 1400 1300 1200 1100 1000)
 GPCCLKS=(1980)
 
 BLOCKSIZES=(1024 256 64)
+BLOCKSIZES=(256)
 
 if [ ${DISABLE_CLKS} ]; then
   GPCCLKS=(${GPCCLKS[0]})
