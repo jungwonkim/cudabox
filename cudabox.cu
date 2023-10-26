@@ -42,6 +42,11 @@
 
 #define MEGA (1024 * 1024UL)
 
+size_t MEMSIZE = 1 * 1024 * MEGA;
+int BLOCKSIZE = 256;
+int STRIDE = 2;
+int SEED = 0;
+
 const char* KERNELS[] = {
   "icomp", "scomp", "dcomp",
   "icudf", "scudf", "dcudf",
@@ -53,10 +58,6 @@ const char* KERNELS[] = {
   "igemm", "sgemm", "dgemm",
   "irand", "srand", "drand",
 };
-
-size_t MEMSIZE = 1 * 1024 * MEGA;
-int BLOCKSIZE = 256;
-int STRIDE = 2;
 
 template <typename T>
 __global__ void comp(T* a) {
@@ -223,8 +224,9 @@ int main(int argc, char** argv) {
   if (getenv("CUDABOX_MEMSIZE"))    MEMSIZE   = atoi(getenv("CUDABOX_MEMSIZE")) * MEGA;
   if (getenv("CUDABOX_BLOCKSIZE"))  BLOCKSIZE = atoi(getenv("CUDABOX_BLOCKSIZE"));
   if (getenv("CUDABOX_STRIDE"))     STRIDE    = atoi(getenv("CUDABOX_STRIDE"));
+  if (getenv("CUDABOX_SEED"))       SEED      = atoi(getenv("CUDABOX_SEED"));
 
-  _info("CUDABOX_$ MEMSIZE[%zu]MB BLOCKSIZE[%d] STRIDE[%d]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE);
+  _info("CUDABOX_$ MEMSIZE[%zu]MB BLOCKSIZE[%d] STRIDE[%d] SEED[%d]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE, SEED);
 
   void *h_a, *h_b, *h_c, *h_a16;
   void *d_a, *d_b, *d_c, *d_a16;
@@ -239,7 +241,7 @@ int main(int argc, char** argv) {
   h_s = (int*) malloc(MEMSIZE);
   h_a16 = malloc(16 * MEMSIZE);
 
-  srand(0);
+  srand(SEED);
   for (size_t i = 0; i < MEMSIZE / sizeof(int); i++) {
     h_r[i] = rand() % (MEMSIZE / sizeof(double));
     h_s[i] = i;
