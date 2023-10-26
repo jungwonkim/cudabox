@@ -1,36 +1,61 @@
 #include <math.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <curand_kernel.h>
 
-#define _cuerror(call) do { cudaError_t err = call; if (err != cudaSuccess) { printf("[%d:%s] CUDA_ERROR[%d] %s\n", __LINE__, __func__, err, cudaGetErrorString(err)); fflush(stdout); } } while (0)
-#define _info(fmt, ...) do { printf(fmt "\n", __VA_ARGS__); fflush(stdout); } while (0)
-#define _debug(fmt, ...) do { printf("D [%d:%s] " fmt "\n", __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
-#define MEGA (1024 * 1024UL)
+#define RED     "\033[22;31m"
+#define GREEN   "\033[22;32m"
+#define YELLOW  "\033[22;33m"
+#define BLUE    "\033[22;34m"
+#define PURPLE  "\033[22;35m"
+#define CYAN    "\033[22;36m"
+#define GRAY    "\033[22;37m"
+#define RESET   "\x1b[m"
 
-#define RUN_KERNEL_INIT() int kernel_idx = 0; int kernel_found = 0;
+#define _cudaerr(cudafn) do { cudaError_t err = cudafn; if (err != cudaSuccess) { printf("[%d:%s] CUDA_ERROR[%d] %s\n", __LINE__, __func__, err, cudaGetErrorString(err)); fflush(stdout); } } while (0)
+#define _check()         do { printf(PURPLE"[%d:%s] " RESET "\n", __LINE__, __func__); fflush(stdout); } while (0)
+#define _info(fmt,  ...) do { printf(fmt "\n", __VA_ARGS__); fflush(stdout); } while (0)
+#define _trace(fmt, ...) do { printf(BLUE  "[%d:%s] " fmt RESET "\n", __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
+#define _debug(fmt, ...) do { printf(GREEN "[%d:%s] " fmt RESET "\n", __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
+#define _error(fmt, ...) do { printf(RED   "[%d:%s] " fmt RESET "\n", __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
+
+#define RUN_KERNEL_INIT(KERNEL) int kernel_idx = 0; int kernel_found = 0; char* kernel = KERNEL;
 #define RUN_KERNEL1(FUNC_NAME, ARG1) \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1); kernel_found = 1; } \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1); kernel_found = 1; } \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1); kernel_found = 1; } 
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1); kernel_found = 1; } \
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1); kernel_found = 1; } \
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1); kernel_found = 1; } 
 #define RUN_KERNEL2(FUNC_NAME, ARG1, ARG2) \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2); kernel_found = 1; } \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2); kernel_found = 1; } \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2); kernel_found = 1; }
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2); kernel_found = 1; } \
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2); kernel_found = 1; } \
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2); kernel_found = 1; }
 #define RUN_KERNEL3(FUNC_NAME, ARG1, ARG2, ARG3) \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2, (int*)    ARG3); kernel_found = 1; } \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2, (float*)  ARG3); kernel_found = 1; } \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2, (double*) ARG3); kernel_found = 1; }
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2, (int*)    ARG3); kernel_found = 1; } \
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2, (float*)  ARG3); kernel_found = 1; } \
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2, (double*) ARG3); kernel_found = 1; }
 #define RUN_KERNEL4(FUNC_NAME, ARG1, ARG2, ARG3, ARG4) \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2, (int*)    ARG3, ARG4); kernel_found = 1; } \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2, (float*)  ARG3, ARG4); kernel_found = 1; } \
-    if (!kernel_found && strcmp(kernels[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2, (double*) ARG3, ARG4); kernel_found = 1; }
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<int>   ((int*)    ARG1, (int*)    ARG2, (int*)    ARG3, ARG4); kernel_found = 1; } \
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<float> ((float*)  ARG1, (float*)  ARG2, (float*)  ARG3, ARG4); kernel_found = 1; } \
+    if (!kernel_found && strcmp(KERNELS[kernel_idx++], kernel) == 0) { FUNC_NAME<double>((double*) ARG1, (double*) ARG2, (double*) ARG3, ARG4); kernel_found = 1; }
 #define RUN_KERNEL_CHECK() { if (!kernel_found) { _info("%-10s no kernel", kernel); continue; } }
 
+#define MEGA (1024 * 1024UL)
+
+const char* KERNELS[] = {
+  "icomp", "scomp", "dcomp",
+  "icudf", "scudf", "dcudf",
+  "igevv", "sgevv", "dgevv",
+  "istvv", "sstvv", "dstvv",
+  "iirvv", "sirvv", "dirvv",
+  "iisvv", "sisvv", "disvv",
+  "igemv", "sgemv", "dgemv",
+  "igemm", "sgemm", "dgemm",
+  "irand", "srand", "drand",
+};
+
 size_t MEMSIZE = 1 * 1024 * MEGA;
-int BLOCKSIZE = 1024;
+int BLOCKSIZE = 256;
 int STRIDE = 2;
 
 template <typename T>
@@ -124,7 +149,7 @@ __global__ void gemv(T* c, T* a, T* b, int k) {
 template <typename T>
 void run_gemv(T* c, T* a, T* b) {
   int N = sqrt(MEMSIZE);
-  int B = 64;
+  int B = BLOCKSIZE;
   int G = N / B;
   gemv<T><<<G, B>>>(c, a, b, N);
 }
@@ -140,9 +165,9 @@ __global__ void gemm(T* c, T* a, T* b, int k) {
 
 template <typename T>
 void run_gemm(T* c, T* a, T* b) {
-  int N = sqrt(MEMSIZE / 64);
-  dim3 B(32, 32);
-  dim3 G(N / 32, N / 32);
+  int N = sqrt(MEMSIZE / sizeof(double) / sizeof(double));
+  dim3 B(sqrt(BLOCKSIZE), sqrt(BLOCKSIZE));
+  dim3 G(N / B.x, N / B.y);
   gemm<T><<<G, B>>>(c, a, b, N);
 }
 
@@ -158,7 +183,7 @@ __global__ void rand(T *a, int n) {
 template <typename T>
 void run_rand(T* a) {
   int N = MEMSIZE / sizeof(double) / 8;
-  int B = 1024;
+  int B = BLOCKSIZE;
   int G = N / B;
   rand<T><<<G, B>>>(a, N);
 }
@@ -173,7 +198,7 @@ __global__ void stvv(T *c, T *a, T *b, int stride) {
 template <typename T>
 void run_stvv(T* c, T* a, T* b) {
   int N = MEMSIZE / sizeof(double) / STRIDE;
-  int B = 1024;
+  int B = BLOCKSIZE;
   int G = N / B;
   stvv<T><<<G, B>>>(c, a, b, STRIDE);
 }
@@ -186,7 +211,15 @@ double now() {
   return tv.tv_sec + 1.e-6 * tv.tv_usec - base_sec;
 }
 
+int help() {
+  printf("Usage: cudabox ");
+  for (int i = 0; i < sizeof(KERNELS) / sizeof(char*); i++) printf("%s ", KERNELS[i]);
+  printf("\n");
+  return 0;
+}
+
 int main(int argc, char** argv) {
+  if (argc == 2 && (strcmp("help", argv[1]) == 0 || strcmp("-h", argv[1]) == 0)) return help();
   if (getenv("CUDABOX_MEMSIZE"))    MEMSIZE   = atoi(getenv("CUDABOX_MEMSIZE")) * MEGA;
   if (getenv("CUDABOX_BLOCKSIZE"))  BLOCKSIZE = atoi(getenv("CUDABOX_BLOCKSIZE"));
   if (getenv("CUDABOX_STRIDE"))     STRIDE    = atoi(getenv("CUDABOX_STRIDE"));
@@ -212,41 +245,30 @@ int main(int argc, char** argv) {
     h_s[i] = i;
   }
 
-  _cuerror(cudaFree(0));
+  _cudaerr(cudaFree(0));
 
-  _cuerror(cudaMalloc(&d_a, MEMSIZE));
-  _cuerror(cudaMalloc(&d_b, MEMSIZE));
-  _cuerror(cudaMalloc(&d_c, MEMSIZE));
-  _cuerror(cudaMalloc(&d_c, MEMSIZE));
-  _cuerror(cudaMalloc(&d_r, MEMSIZE));
-  _cuerror(cudaMalloc(&d_s, MEMSIZE));
-  _cuerror(cudaMalloc(&d_a16, 16 * MEMSIZE));
+  _cudaerr(cudaMalloc(&d_a, MEMSIZE));
+  _cudaerr(cudaMalloc(&d_b, MEMSIZE));
+  _cudaerr(cudaMalloc(&d_c, MEMSIZE));
+  _cudaerr(cudaMalloc(&d_c, MEMSIZE));
+  _cudaerr(cudaMalloc(&d_r, MEMSIZE));
+  _cudaerr(cudaMalloc(&d_s, MEMSIZE));
+  _cudaerr(cudaMalloc(&d_a16, 16 * MEMSIZE));
 
-  _cuerror(cudaMemcpy(d_a, h_a, MEMSIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_b, h_b, MEMSIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_c, h_c, MEMSIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_r, h_r, MEMSIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_s, h_s, MEMSIZE, cudaMemcpyHostToDevice));
-  _cuerror(cudaMemcpy(d_a16, h_a16, 16 * MEMSIZE, cudaMemcpyHostToDevice));
+  _cudaerr(cudaMemcpy(d_a, h_a, MEMSIZE, cudaMemcpyHostToDevice));
+  _cudaerr(cudaMemcpy(d_b, h_b, MEMSIZE, cudaMemcpyHostToDevice));
+  _cudaerr(cudaMemcpy(d_c, h_c, MEMSIZE, cudaMemcpyHostToDevice));
+  _cudaerr(cudaMemcpy(d_r, h_r, MEMSIZE, cudaMemcpyHostToDevice));
+  _cudaerr(cudaMemcpy(d_s, h_s, MEMSIZE, cudaMemcpyHostToDevice));
+  _cudaerr(cudaMemcpy(d_a16, h_a16, 16 * MEMSIZE, cudaMemcpyHostToDevice));
 
-  const char* kernels[] = {
-    "icomp", "scomp", "dcomp",
-    "icudf", "scudf", "dcudf",
-    "igevv", "sgevv", "dgevv",
-    "istvv", "fstvv", "dstvv",
-    "iirvv", "sirvv", "dirvv",
-    "iisvv", "sisvv", "disvv",
-    "igemv", "sgemv", "dgemv",
-    "igemm", "sgemm", "dgemm",
-    "irand", "srand", "drand",
-  };
   int all = argc == 1;
-  int nkernels = all ? sizeof(kernels) / sizeof(char*) : argc - 1;
+  int nkernels = all ? sizeof(KERNELS) / sizeof(char*) : argc - 1;
+  char** kernels = all ? (char**) KERNELS : argv + 1;
 
   for (int i = 0; i < nkernels; i++) {
-    const char* kernel = all ? kernels[i] : argv[i + 1];
     double t0 = now();
-    RUN_KERNEL_INIT();
+    RUN_KERNEL_INIT(kernels[i]);
     RUN_KERNEL1(run_comp, d_c);
     RUN_KERNEL1(run_cudf, d_c);
     RUN_KERNEL3(run_gevv, d_c, d_a, d_b);
@@ -257,24 +279,24 @@ int main(int argc, char** argv) {
     RUN_KERNEL3(run_gemm, d_c, d_a, d_b);
     RUN_KERNEL1(run_rand, d_c);
     RUN_KERNEL_CHECK();
-    _cuerror(cudaGetLastError());
-    _cuerror(cudaDeviceSynchronize());
+    _cudaerr(cudaGetLastError());
+    _cudaerr(cudaDeviceSynchronize());
     _info("%-10s %lf", kernel, now() - t0);
   }
 
 #ifdef CUDABOX_D2H
-  _cuerror(cudaMemcpy(h_a, d_a, MEMSIZE, cudaMemcpyDeviceToHost));
-  _cuerror(cudaMemcpy(h_b, d_b, MEMSIZE, cudaMemcpyDeviceToHost));
-  _cuerror(cudaMemcpy(h_c, d_c, MEMSIZE, cudaMemcpyDeviceToHost));
-  _cuerror(cudaMemcpy(h_a16, d_a16, 16 * MEMSIZE, cudaMemcpyDeviceToHost));
+  _cudaerr(cudaMemcpy(h_a, d_a, MEMSIZE, cudaMemcpyDeviceToHost));
+  _cudaerr(cudaMemcpy(h_b, d_b, MEMSIZE, cudaMemcpyDeviceToHost));
+  _cudaerr(cudaMemcpy(h_c, d_c, MEMSIZE, cudaMemcpyDeviceToHost));
+  _cudaerr(cudaMemcpy(h_a16, d_a16, 16 * MEMSIZE, cudaMemcpyDeviceToHost));
 #endif
 
-  _cuerror(cudaFree(d_a));
-  _cuerror(cudaFree(d_b));
-  _cuerror(cudaFree(d_c));
-  _cuerror(cudaFree(d_r));
-  _cuerror(cudaFree(d_s));
-  _cuerror(cudaFree(d_a16));
+  _cudaerr(cudaFree(d_a));
+  _cudaerr(cudaFree(d_b));
+  _cudaerr(cudaFree(d_c));
+  _cudaerr(cudaFree(d_r));
+  _cudaerr(cudaFree(d_s));
+  _cudaerr(cudaFree(d_a16));
 
   return 0;
 }
