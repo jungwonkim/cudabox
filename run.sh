@@ -3,7 +3,7 @@
 APP="./cudabox"
 APP_CMD="istvv fstvv dstvv"
 APP_CMD="igemv sgemv dgemv"
-APP_CMD=""
+APP_CMD="ispmv sspmv dspmv"
 
 HOSTNAME=`hostname -s`
 TODAY=`date +"%Y%m%d"`
@@ -13,6 +13,7 @@ CTIME=`date +"%H%M%S"`
 MEMCLKS=(2619 1593)
 MEMCLKS=(2619)
 GPCCLKS=(1980 1900 1800 1700 1600 1500 1400 1300 1200 1100 1000)
+GPCCLKS=(1980 1000)
 GPCCLKS=(1980)
 
 BLOCKSIZES=(1024 256 64)
