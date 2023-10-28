@@ -273,6 +273,17 @@ int main(int argc, char** argv) {
   int *d_ia, *d_ja;
   size_t size_ja = MEMSIZE * SPARSITY;
 
+  int all = argc == 1;
+  int nkernels = all ? sizeof(KERNELS) / sizeof(char*) : argc - 1;
+  char** kernels = all ? (char**) KERNELS : argv + 1;
+
+  int has_vv = 0;
+  int has_spmv = 0;
+  for (int i = 0; i < nkernels; i++) {
+    if (strstr(kernels[i], "spmv")) has_spmv = 1;
+    else if (strstr(kernels[i], "vv")) has_vv = 1;
+  }
+
   h_a = malloc(MEMSIZE);
   h_b = malloc(MEMSIZE);
   h_c = malloc(MEMSIZE);
@@ -283,45 +294,42 @@ int main(int argc, char** argv) {
   h_ja = (int*) malloc(size_ja * sizeof(int));
 
   srand(SEED);
-  for (size_t i = 0; i < MEMSIZE / sizeof(int); i++) {
-    h_r[i] = rand() % (MEMSIZE / MAXTYPESIZE);
-    h_s[i] = i;
+  if (has_vv) {
+    for (size_t i = 0; i < MEMSIZE / sizeof(int); i++) {
+      h_r[i] = rand() % (MEMSIZE / MAXTYPESIZE);
+      h_s[i] = i;
+    }
   }
 
-  int* h_ia_temp = (int*) malloc(MEMSIZESQRT * sizeof(int));
-  size_t h_ia_temp_sum = 0ULL;
-  printf("H_IA_TEMP\n");
-  for (size_t i = 0; i < MEMSIZESQRT; i++) {
-    h_ia_temp[i] = rand() % size_ja;
-    h_ia_temp_sum += h_ia_temp[i];
-    //printf("%10d", h_ia_temp[i]);
-  }
-  double h_ia_scaling_factor = (double) size_ja / h_ia_temp_sum;
-  _debug("scaling factor[%lf]", h_ia_scaling_factor);
-  h_ia_temp_sum = 0ULL;
-  for (size_t i = 0; i < MEMSIZESQRT - 1; i++) {
-    h_ia_temp[i] = (int) (h_ia_temp[i] * h_ia_scaling_factor);
-    h_ia_temp_sum += h_ia_temp[i];
-  }
-  h_ia_temp[MEMSIZESQRT - 1] = size_ja - h_ia_temp_sum;
-  h_ia[0] = 0;
-  printf("====================================================================\n");
-  for (size_t i = 0; i < MEMSIZESQRT; i++) {
-    h_ia[i + 1] = h_ia[i] + h_ia_temp[i];
-    //printf("%16d", h_ia[i + 1]);
-  }
-  printf("\n");
-  free(h_ia_temp);
-  
-  for (size_t i = 0; i < size_ja; i++) {
-    h_ja[i] = rand() % MEMSIZESQRT;
+  if (has_spmv) {
+    int* h_ia_temp = (int*) malloc(MEMSIZESQRT * sizeof(int));
+    size_t h_ia_temp_sum = 0ULL;
+    for (size_t i = 0; i < MEMSIZESQRT; i++) {
+      h_ia_temp[i] = rand() % size_ja;
+      h_ia_temp_sum += h_ia_temp[i];
+    }
+    double h_ia_scaling_factor = (double) size_ja / h_ia_temp_sum;
+    h_ia_temp_sum = 0ULL;
+    for (size_t i = 0; i < MEMSIZESQRT - 1; i++) {
+      h_ia_temp[i] = (int) (h_ia_temp[i] * h_ia_scaling_factor);
+      h_ia_temp_sum += h_ia_temp[i];
+    }
+    h_ia_temp[MEMSIZESQRT - 1] = size_ja - h_ia_temp_sum;
+    h_ia[0] = 0;
+    for (size_t i = 0; i < MEMSIZESQRT; i++) {
+      h_ia[i + 1] = h_ia[i] + h_ia_temp[i];
+    }
+    free(h_ia_temp);
+
+    for (size_t i = 0; i < size_ja; i++) {
+      h_ja[i] = rand() % MEMSIZESQRT;
+    }
   }
 
   _cudaerr(cudaFree(0));
 
   _cudaerr(cudaMalloc(&d_a, MEMSIZE));
   _cudaerr(cudaMalloc(&d_b, MEMSIZE));
-  _cudaerr(cudaMalloc(&d_c, MEMSIZE));
   _cudaerr(cudaMalloc(&d_c, MEMSIZE));
   _cudaerr(cudaMalloc(&d_a8, 8 * MEMSIZE));
   _cudaerr(cudaMalloc(&d_r, MEMSIZE));
@@ -337,10 +345,6 @@ int main(int argc, char** argv) {
   _cudaerr(cudaMemcpy(d_s, h_s, MEMSIZE, cudaMemcpyHostToDevice));
   _cudaerr(cudaMemcpy(d_ia, h_ia, (MEMSIZESQRT + 1) * sizeof(int), cudaMemcpyHostToDevice));
   _cudaerr(cudaMemcpy(d_ja, h_ja, size_ja * sizeof(int), cudaMemcpyHostToDevice));
-
-  int all = argc == 1;
-  int nkernels = all ? sizeof(KERNELS) / sizeof(char*) : argc - 1;
-  char** kernels = all ? (char**) KERNELS : argv + 1;
 
   for (int i = 0; i < nkernels; i++) {
     double t0 = now();
