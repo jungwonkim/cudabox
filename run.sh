@@ -4,6 +4,7 @@ APP="./cudabox"
 APP_CMD="istvv fstvv dstvv"
 APP_CMD="igemv sgemv dgemv"
 APP_CMD="ispmv sspmv dspmv"
+APP_CMD=""
 
 HOSTNAME=`hostname -s`
 TODAY=`date +"%Y%m%d"`
