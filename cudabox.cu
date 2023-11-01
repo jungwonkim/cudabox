@@ -245,6 +245,37 @@ int help() {
   return 0;
 }
 
+void init_vv(int* h_r, int* h_s) {
+  for (size_t i = 0; i < MEMSIZE / sizeof(int); i++) {
+    h_r[i] = rand() % (MEMSIZE / MAXTYPESIZE);
+    h_s[i] = i;
+  }
+}
+
+void init_spmv(int* h_ia, int* h_ja, size_t size_ja) {
+  int* h_ia_temp = (int*) malloc(MEMSIZESQRT * sizeof(int));
+  size_t h_ia_temp_sum = 0ULL;
+  for (size_t i = 0; i < MEMSIZESQRT; i++) {
+    h_ia_temp[i] = rand() % size_ja;
+    h_ia_temp_sum += h_ia_temp[i];
+  }
+  double h_ia_scaling_factor = (double) size_ja / h_ia_temp_sum;
+  h_ia_temp_sum = 0ULL;
+  for (size_t i = 0; i < MEMSIZESQRT - 1; i++) {
+    h_ia_temp[i] = (int) (h_ia_temp[i] * h_ia_scaling_factor);
+    h_ia_temp_sum += h_ia_temp[i];
+  }
+  h_ia_temp[MEMSIZESQRT - 1] = size_ja - h_ia_temp_sum;
+  h_ia[0] = 0;
+  for (size_t i = 0; i < MEMSIZESQRT; i++) {
+    h_ia[i + 1] = h_ia[i] + h_ia_temp[i];
+  }
+  for (size_t i = 0; i < size_ja; i++) {
+    h_ja[i] = rand() % MEMSIZESQRT;
+  }
+  free(h_ia_temp);
+}
+
 int main(int argc, char** argv) {
   if (argc == 2 && (strcmp("help", argv[1]) == 0 || strcmp("-h", argv[1]) == 0)) return help();
   if (getenv("CUDABOX_MEMSIZE"))    MEMSIZE   = atoi(getenv("CUDABOX_MEMSIZE")) * MEGA;
@@ -280,8 +311,8 @@ int main(int argc, char** argv) {
   int has_vv = 0;
   int has_spmv = 0;
   for (int i = 0; i < nkernels; i++) {
+    if (strstr(kernels[i], "vv"))   has_vv   = 1;
     if (strstr(kernels[i], "spmv")) has_spmv = 1;
-    else if (strstr(kernels[i], "vv")) has_vv = 1;
   }
 
   h_a = malloc(MEMSIZE);
@@ -294,37 +325,8 @@ int main(int argc, char** argv) {
   h_ja = (int*) malloc(size_ja * sizeof(int));
 
   srand(SEED);
-  if (has_vv) {
-    for (size_t i = 0; i < MEMSIZE / sizeof(int); i++) {
-      h_r[i] = rand() % (MEMSIZE / MAXTYPESIZE);
-      h_s[i] = i;
-    }
-  }
-
-  if (has_spmv) {
-    int* h_ia_temp = (int*) malloc(MEMSIZESQRT * sizeof(int));
-    size_t h_ia_temp_sum = 0ULL;
-    for (size_t i = 0; i < MEMSIZESQRT; i++) {
-      h_ia_temp[i] = rand() % size_ja;
-      h_ia_temp_sum += h_ia_temp[i];
-    }
-    double h_ia_scaling_factor = (double) size_ja / h_ia_temp_sum;
-    h_ia_temp_sum = 0ULL;
-    for (size_t i = 0; i < MEMSIZESQRT - 1; i++) {
-      h_ia_temp[i] = (int) (h_ia_temp[i] * h_ia_scaling_factor);
-      h_ia_temp_sum += h_ia_temp[i];
-    }
-    h_ia_temp[MEMSIZESQRT - 1] = size_ja - h_ia_temp_sum;
-    h_ia[0] = 0;
-    for (size_t i = 0; i < MEMSIZESQRT; i++) {
-      h_ia[i + 1] = h_ia[i] + h_ia_temp[i];
-    }
-    free(h_ia_temp);
-
-    for (size_t i = 0; i < size_ja; i++) {
-      h_ja[i] = rand() % MEMSIZESQRT;
-    }
-  }
+  if (has_vv)   init_vv(h_r, h_s);
+  if (has_spmv) init_spmv(h_ia, h_ja, size_ja);
 
   _cudaerr(cudaFree(0));
 

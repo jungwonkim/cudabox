@@ -30,12 +30,16 @@ export CUDA_MODULE_LOADING=EAGER
 for MC in "${MEMCLKS[@]}"; do
 for GC in "${GPCCLKS[@]}"; do
 for BS in "${BLOCKSIZES[@]}"; do
-  echo "===== MC[$MC] GC[$GC] BS[$BS]- $HOSTNAME-$TODAY-$CTIME ====="
+  echo "===== MC[$MC] GC[$GC] BS[$BS] - $HOSTNAME-$TODAY-$CTIME ====="
   if [ "$1" == "ncu" ]; then
-    NCU_CMD="ncu --target-processes all --clock-control none -f --set full"
     OUTDIR=./ncu
     mkdir -p $OUTDIR
-    PREFIX="$NCU_CMD -o $OUTDIR/cudabox-$MC-$GC-$HOSTNAME-$TODAY-$CTIME"
+    NCU_CMD="ncu --target-processes all --clock-control none -f --set full"
+    NCU_OUTPUT="cudabox-$MC-$GC-$HOSTNAME-$TODAY-$CTIME"
+    if [ $2 ]; then
+      NCU_OUTPUT="cudabox-$2-$MC-$GC-$HOSTNAME-$TODAY-$CTIME"
+    fi
+    PREFIX="$NCU_CMD -o $OUTDIR/$NCU_OUTPUT"
   else
     PREFIX=""
   fi
