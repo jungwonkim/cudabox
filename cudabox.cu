@@ -118,13 +118,6 @@ void run_gevv(T* c, T* a, T* b) {
 }
 
 template <typename T>
-__global__ void irvv(T *c, T *a, T *b, int* r) {
-  int x = blockIdx.x * blockDim.x + threadIdx.x;
-  int i = r[x];
-  c[i] = a[i] + b[i];
-}
-
-template <typename T>
 __global__ void stvv(T *c, T *a, T *b, int stride) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int i = x * stride;
@@ -137,6 +130,13 @@ void run_stvv(T* c, T* a, T* b) {
   int B = BLOCKSIZE;
   int G = N / B;
   stvv<T><<<G, B>>>(c, a, b, STRIDE);
+}
+
+template <typename T>
+__global__ void irvv(T *c, T *a, T *b, int* r) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int i = r[x];
+  c[i] = a[i] + b[i];
 }
 
 template <typename T>
