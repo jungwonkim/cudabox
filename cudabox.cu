@@ -284,20 +284,20 @@ int main(int argc, char** argv) {
   if (getenv("CUDABOX_SEED"))       SEED      = atoi(getenv("CUDABOX_SEED"));
   if (getenv("CUDABOX_SPARSITY"))   SPARSITY  = atof(getenv("CUDABOX_SPARSITY"));
 
-  _info("CUDABOX_$ MEMSIZE[%zu]MB BLOCKSIZE[%d] STRIDE[%d] SEED[%d] SPARSITY[%f]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE, SEED, SPARSITY);
-
   MEMSIZESQRT = sqrt(MEMSIZE);
+
+  _info("CUDABOX_$ MEMSIZE[%zu]MB BLOCKSIZE[%d] STRIDE[%d] SEED[%d] SPARSITY[%f]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE, SEED, SPARSITY);
 
   void *h_a, *h_b, *h_c;
   void *d_a, *d_b, *d_c;
 
+  /* for vv */
+  int *h_r, *h_s;
+  int *d_r, *d_s;
+
   /* for mv */
   void *h_a8;
   void *d_a8;
-
-  /* for gemv */
-  int *h_r, *h_s;
-  int *d_r, *d_s;
 
   /* for spmv */
   int *h_ia, *h_ja;
@@ -309,44 +309,63 @@ int main(int argc, char** argv) {
   char** kernels = all ? (char**) KERNELS : argv + 1;
 
   int has_vv = 0;
+  int has_mv = 0;
   int has_spmv = 0;
   for (int i = 0; i < nkernels; i++) {
     if (strstr(kernels[i], "vv"))   has_vv   = 1;
+    if (strstr(kernels[i], "mv"))   has_mv   = 1;
     if (strstr(kernels[i], "spmv")) has_spmv = 1;
   }
+
+  srand(SEED);
 
   h_a = malloc(MEMSIZE);
   h_b = malloc(MEMSIZE);
   h_c = malloc(MEMSIZE);
   h_a8 = malloc(8 * MEMSIZE);
-  h_r = (int*) malloc(MEMSIZE);
-  h_s = (int*) malloc(MEMSIZE);
-  h_ia = (int*) malloc((MEMSIZESQRT + 1) * sizeof(int));
-  h_ja = (int*) malloc(size_ja * sizeof(int));
 
-  srand(SEED);
-  if (has_vv)   init_vv(h_r, h_s);
-  if (has_spmv) init_spmv(h_ia, h_ja, size_ja);
+  if (has_vv) {
+    h_r = (int*) malloc(MEMSIZE);
+    h_s = (int*) malloc(MEMSIZE);
+    init_vv(h_r, h_s);
+  }
 
-  _cudaerr(cudaFree(0));
+  if (has_mv) {
+    h_a8 = malloc(8 * MEMSIZE);
+  }
+
+  if (has_spmv) {
+    h_ia = (int*) malloc((MEMSIZESQRT + 1) * sizeof(int));
+    h_ja = (int*) malloc(size_ja * sizeof(int));
+    init_spmv(h_ia, h_ja, size_ja);
+  }
 
   _cudaerr(cudaMalloc(&d_a, MEMSIZE));
   _cudaerr(cudaMalloc(&d_b, MEMSIZE));
   _cudaerr(cudaMalloc(&d_c, MEMSIZE));
-  _cudaerr(cudaMalloc(&d_a8, 8 * MEMSIZE));
-  _cudaerr(cudaMalloc(&d_r, MEMSIZE));
-  _cudaerr(cudaMalloc(&d_s, MEMSIZE));
-  _cudaerr(cudaMalloc(&d_ia, (MEMSIZESQRT + 1) * sizeof(int)));
-  _cudaerr(cudaMalloc(&d_ja, MEMSIZE * sizeof(int) * SPARSITY));
 
+#ifdef CUDABOX_H2D
   _cudaerr(cudaMemcpy(d_a, h_a, MEMSIZE, cudaMemcpyHostToDevice));
   _cudaerr(cudaMemcpy(d_b, h_b, MEMSIZE, cudaMemcpyHostToDevice));
   _cudaerr(cudaMemcpy(d_c, h_c, MEMSIZE, cudaMemcpyHostToDevice));
-  _cudaerr(cudaMemcpy(d_a8, h_a8, 8 * MEMSIZE, cudaMemcpyHostToDevice));
-  _cudaerr(cudaMemcpy(d_r, h_r, MEMSIZE, cudaMemcpyHostToDevice));
-  _cudaerr(cudaMemcpy(d_s, h_s, MEMSIZE, cudaMemcpyHostToDevice));
-  _cudaerr(cudaMemcpy(d_ia, h_ia, (MEMSIZESQRT + 1) * sizeof(int), cudaMemcpyHostToDevice));
-  _cudaerr(cudaMemcpy(d_ja, h_ja, size_ja * sizeof(int), cudaMemcpyHostToDevice));
+#endif
+
+  if (has_vv) {
+    _cudaerr(cudaMalloc(&d_r, MEMSIZE));
+    _cudaerr(cudaMalloc(&d_s, MEMSIZE));
+    _cudaerr(cudaMemcpy(d_r, h_r, MEMSIZE, cudaMemcpyHostToDevice));
+    _cudaerr(cudaMemcpy(d_s, h_s, MEMSIZE, cudaMemcpyHostToDevice));
+  }
+  if (has_mv) {
+    _cudaerr(cudaMalloc(&d_a8, 8 * MEMSIZE));
+    _cudaerr(cudaMemcpy(d_a8, h_a8, 8 * MEMSIZE, cudaMemcpyHostToDevice));
+  }
+  if (has_spmv) {
+    _cudaerr(cudaMalloc(&d_ia, (MEMSIZESQRT + 1) * sizeof(int)));
+    _cudaerr(cudaMalloc(&d_ja, MEMSIZE * sizeof(int) * SPARSITY));
+    _cudaerr(cudaMemcpy(d_ia, h_ia, (MEMSIZESQRT + 1) * sizeof(int), cudaMemcpyHostToDevice));
+    _cudaerr(cudaMemcpy(d_ja, h_ja, size_ja * sizeof(int), cudaMemcpyHostToDevice));
+  }
 
   for (int i = 0; i < nkernels; i++) {
     double t0 = now();
@@ -367,14 +386,9 @@ int main(int argc, char** argv) {
     _info("%-10s %lf", kernel, now() - t0);
   }
 
+#ifdef CUDABOX_D2H
   _cudaerr(cudaMemcpy(h_c, d_c, MEMSIZE, cudaMemcpyDeviceToHost));
-
-  _cudaerr(cudaFree(d_a));
-  _cudaerr(cudaFree(d_b));
-  _cudaerr(cudaFree(d_c));
-  _cudaerr(cudaFree(d_r));
-  _cudaerr(cudaFree(d_s));
-  _cudaerr(cudaFree(d_a8));
+#endif
 
   return 0;
 }
