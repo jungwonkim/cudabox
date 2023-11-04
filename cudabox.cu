@@ -278,7 +278,7 @@ void init_spmv(int* h_ia, int* h_ja, size_t size_ja) {
 
 int main(int argc, char** argv) {
   if (argc == 2 && (strcmp("help", argv[1]) == 0 || strcmp("-h", argv[1]) == 0)) return help();
-  if (getenv("CUDABOX_MEMSIZE"))    MEMSIZE   = atoi(getenv("CUDABOX_MEMSIZE")) * MEGA;
+  if (getenv("CUDABOX_MEMSIZE"))    MEMSIZE   = atol(getenv("CUDABOX_MEMSIZE")) * MEGA;
   if (getenv("CUDABOX_BLOCKSIZE"))  BLOCKSIZE = atoi(getenv("CUDABOX_BLOCKSIZE"));
   if (getenv("CUDABOX_STRIDE"))     STRIDE    = atoi(getenv("CUDABOX_STRIDE"));
   if (getenv("CUDABOX_SEED"))       SEED      = atoi(getenv("CUDABOX_SEED"));
