@@ -34,12 +34,22 @@ for BS in "${BLOCKSIZES[@]}"; do
   if [ "$1" == "ncu" ]; then
     OUTDIR=./ncu
     mkdir -p $OUTDIR
-    NCU_CMD="ncu --target-processes all --clock-control none -f --set full"
+    NCU=ncu
+    NCU_CMD="$NCU --target-processes all --clock-control none -f --set full"
     NCU_OUTPUT="cudabox-$MC-$GC-$HOSTNAME-$TODAY-$CTIME"
     if [ $2 ]; then
       NCU_OUTPUT="cudabox-$2-$MC-$GC-$HOSTNAME-$TODAY-$CTIME"
     fi
-    PREFIX="$NCU_CMD -o $OUTDIR/$NCU_OUTPUT"
+    NCU_CMD="$NCU_CMD -o $OUTDIR/$NCU_OUTPUT"
+    PREFIX=$NCU_CMD
+  elif [ "$1" == "ncu-lwpm" ]; then
+    OUTDIR="./ncu-lwpm"
+    mkdir -p $OUTDIR
+    NCU=ncu
+    NCU_CMD="$NCU --target-processes all --clock-control none -f"
+    NCU_CMD="$NCU_CMD --metrics `cat /home/scratch.e2e_hpc/projections/lwpm_ncu_metrics/lwpm.ncu_metrics.ga100.latest.list`"
+    NCU_CMD="$NCU_CMD -o $OUTDIR/cudabox-$MC-$GC-$HOSTNAME-$TODAY-$CTIME"
+    PREFIX=$NCU_CMD
   else
     PREFIX=""
   fi
@@ -48,7 +58,8 @@ for BS in "${BLOCKSIZES[@]}"; do
   fi
   sleep 1
   set -x
-  CUDABOX_BLOCKSIZE=$BS $PREFIX $APP $APP_CMD
+  #CUDABOX_BLOCKSIZE=$BS $PREFIX $APP $APP_CMD
+  $PREFIX $APP $APP_CMD
   set +x
 done
 done

@@ -1,6 +1,7 @@
+SM=$(shell ~/sm)
+
 NVCC=nvcc
-NVFLAGS=-O0 --generate-line-info -gencode arch=compute_80,code=[compute_80,sm_80]
-NVFLAGS=-O0 --generate-line-info -gencode arch=compute_90,code=[compute_90,sm_90]
+NVFLAGS=-O0 --generate-line-info -gencode arch=compute_$(SM),code=[compute_$(SM),sm_$(SM)]
 
 cudabox:cudabox.cu
 	$(NVCC) $(NVFLAGS) $? -o $@
