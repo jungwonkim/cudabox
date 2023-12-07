@@ -58,8 +58,8 @@ for BS in "${BLOCKSIZES[@]}"; do
   fi
   sleep 1
   set -x
-  #CUDABOX_BLOCKSIZE=$BS $PREFIX $APP $APP_CMD
-  $PREFIX $APP $APP_CMD
+  CUDABOX_BLOCKSIZE=$BS $PREFIX $APP $APP_CMD
+  #$PREFIX $APP $APP_CMD
   set +x
 done
 done

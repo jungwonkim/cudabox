@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
-#include <curand_kernel.h>
 
 #define RED     "\033[22;31m"
 #define GREEN   "\033[22;32m"
@@ -21,7 +20,7 @@
 #define _debug(fmt, ...) do { printf(GREEN "[%d:%s] " fmt RESET "\n", __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
 #define _error(fmt, ...) do { printf(RED   "[%d:%s] " fmt RESET "\n", __LINE__, __func__, __VA_ARGS__); fflush(stdout); } while (0)
 
-#define ARG_PREFIX d_
+#define ARG_PREFIX h_
 #define ARG_CONCAT(PREFIX, ARG)   PREFIX##ARG
 #define ARG_ECONCAT(PREFIX, ARG)  ARG_CONCAT(PREFIX, ARG)
 #define ARG(ARGN)                 ARG_ECONCAT(ARG_PREFIX, ARGN)
@@ -51,7 +50,9 @@
 
 #define MEGA (1024 * 1024UL)
 
-size_t  MEMSIZE       = 1 * 1024 * MEGA;
+typedef struct _dim3 { unsigned int x, y, z; } dim3;
+
+size_t  MEMSIZE       = 16 * MEGA;
 size_t  MEMSIZESQRT;
 int     BLOCKSIZE     = 256;
 int     STRIDE        = 2;
@@ -72,6 +73,10 @@ const char* KERNELS[] = {
   "irand", "srand", "drand",
 };
 
+#define CPUBOX_KERNEL int blockDim_x = B; for (int blockIdx_x = 0; blockIdx_x < G; blockIdx_x++) for (int threadIdx_x = 0; threadIdx_x < B; threadIdx_x++)
+#define CPUBOX_KERNEL_2D int blockDim_x = B.x; int blockDim_y = B.y; for (int blockIdx_y = 0; blockIdx_y < G.y; blockIdx_y++) for (int blockIdx_x = 0; blockIdx_x < G.x; blockIdx_x++) for (int threadIdx_y = 0; threadIdx_y < B.y; threadIdx_y++) for (int threadIdx_x = 0; threadIdx_x < B.y; threadIdx_x++)
+
+/*
 template <typename T>
 __global__ void comp(T* a) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -81,15 +86,25 @@ __global__ void comp(T* a) {
   }
   a[x] = sum;
 }
+*/
 
 template <typename T>
 void run_comp(T* a) {
   int N = MEMSIZE / MAXTYPESIZE;
   int B = BLOCKSIZE;
   int G = N / B;
-  comp<T><<<G, B>>>(a);
+  //comp<T><<<G, B>>>(a);
+  CPUBOX_KERNEL {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  T sum = x;
+  for (int i = 0; i < blockDim_x / 4; i++) {
+    sum += i * (i + 13) / (i + 7);
+  }
+  a[x] = sum;
+  }
 }
 
+/*
 template <typename T>
 __global__ void cudf(T* a) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -99,74 +114,112 @@ __global__ void cudf(T* a) {
   }
   a[x] = sum;
 }
+*/
 
 template <typename T>
 void run_cudf(T* a) {
   int N = MEMSIZE / MAXTYPESIZE;
   int B = BLOCKSIZE;
   int G = N / B;
-  cudf<T><<<G, B>>>(a);
+  //cudf<T><<<G, B>>>(a);
+  CPUBOX_KERNEL {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  T sum = 0;
+  for (int i = 0; i < blockDim_x / 4; i++) {
+    sum += i * (i + 10) - (i / 7);
+  }
+  a[x] = sum;
+  }
 }
 
+/*
 template <typename T>
 __global__ void gevv(T* c, T *a, T *b) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   c[x] = a[x] + b[x];
 }
+*/
 
 template <typename T>
 void run_gevv(T* c, T* a, T* b) {
   int N = MEMSIZE / MAXTYPESIZE;
   int B = BLOCKSIZE;
   int G = N / B;
-  gevv<T><<<G, B>>>(c, a, b);
+  //gevv<T><<<G, B>>>(c, a, b);
+  CPUBOX_KERNEL {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  c[x] = a[x] + b[x];
+  }
 }
 
+/*
 template <typename T>
-__global__ void stvv(T *c, T *a, T *b, int stride) {
+__global__ void stvv(T *c, T *a, T *b, int STRIDE) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
-  int i = x * stride;
+  int i = x * STRIDE;
   c[i] = a[i] + b[i];
 }
+*/
 
 template <typename T>
 void run_stvv(T* c, T* a, T* b) {
   int N = MEMSIZE / MAXTYPESIZE / STRIDE;
   int B = BLOCKSIZE;
   int G = N / B;
-  stvv<T><<<G, B>>>(c, a, b, STRIDE);
+  int stride = STRIDE;
+  //stvv<T><<<G, B>>>(c, a, b, STRIDE);
+  CPUBOX_KERNEL {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  int i = x * stride;
+  c[i] = a[i] + b[i];
+  }
 }
 
+/*
 template <typename T>
 __global__ void irvv(T *c, T *a, T *b, int* r) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int i = r[x];
   c[i] = a[i] + b[i];
 }
+*/
 
 template <typename T>
 void run_irvv(T* c, T* a, T* b, int* r) {
   int N = MEMSIZE / MAXTYPESIZE;
   int B = BLOCKSIZE;
   int G = N / B;
-  irvv<T><<<G, B>>>(c, a, b, r);
+  //irvv<T><<<G, B>>>(c, a, b, r);
+  CPUBOX_KERNEL {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  int i = r[x];
+  c[i] = a[i] + b[i];
+  }
 }
 
+/*
 template <typename T>
 __global__ void isvv(T *c, T *a, T *b, int* s) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int i = s[x];
   c[i] = a[i] + b[i];
 }
+*/
 
 template <typename T>
 void run_isvv(T* c, T* a, T* b, int* s) {
   int N = MEMSIZE / MAXTYPESIZE;
   int B = BLOCKSIZE;
   int G = N / B;
-  isvv<T><<<G, B>>>(c, a, b, s);
+  //isvv<T><<<G, B>>>(c, a, b, s);
+  CPUBOX_KERNEL {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  int i = s[x];
+  c[i] = a[i] + b[i];
+  }
 }
 
+/*
 template <typename T>
 __global__ void gemv(T* c, T* a, T* b, int k) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -174,15 +227,24 @@ __global__ void gemv(T* c, T* a, T* b, int k) {
     c[x] += a[x * k + i] * b[i];
   }
 }
+*/
 
 template <typename T>
 void run_gemv(T* c, T* a, T* b) {
   int N = MEMSIZESQRT;
   int B = BLOCKSIZE;
   int G = N / B;
-  gemv<T><<<G, B>>>(c, a, b, N);
+  int k = N;
+  //gemv<T><<<G, B>>>(c, a, b, N);
+  CPUBOX_KERNEL {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  for(int i = 0; i < k; i++) {
+    c[x] += a[x * k + i] * b[i];
+  }
+  }
 }
 
+/*
 template <typename T>
 __global__ void spmv(T* y, T* a, T* x, int* ia, int* ja) {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
@@ -192,15 +254,25 @@ __global__ void spmv(T* y, T* a, T* x, int* ia, int* ja) {
     y[row] += a[j] * x[ja[j]];
   }
 }
+*/
 
 template <typename T>
 void run_spmv(T* y, T* a, T* x,  int* ia, int* ja) {
   int N = MEMSIZESQRT;
   int B = BLOCKSIZE;
   int G = N / B;
-  spmv<T><<<G, B>>>(y, a, x, ia, ja);
+  //spmv<T><<<G, B>>>(y, a, x, ia, ja);
+  CPUBOX_KERNEL {
+  int row = blockIdx_x * blockDim_x + threadIdx_x;
+  int row0 = ia[row];
+  int row1 = ia[row + 1];
+  for (int j = row0; j < row1; j++) {
+    y[row] += a[j] * x[ja[j]];
+  }
+  }
 }
 
+/*
 template <typename T>
 __global__ void gemm(T* c, T* a, T* b, int k) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -209,15 +281,25 @@ __global__ void gemm(T* c, T* a, T* b, int k) {
     c[y * k + x] += a[y * k + i] * b[i * k + x];
   }
 }
+*/
 
 template <typename T>
 void run_gemm(T* c, T* a, T* b) {
   int N = static_cast<int>(sqrt(MEMSIZE / MAXTYPESIZE / MAXTYPESIZE));
-  dim3 B(static_cast<unsigned int>(sqrt(BLOCKSIZE)), static_cast<unsigned int>(sqrt(BLOCKSIZE)), 1);
-  dim3 G(N / B.x, N / B.y, 1);
-  gemm<T><<<G, B>>>(c, a, b, N);
+  dim3 B{static_cast<unsigned int>(sqrt(BLOCKSIZE)), static_cast<unsigned int>(sqrt(BLOCKSIZE)), 1};
+  dim3 G{N / B.x, N / B.y, 1};
+  int k = N;
+  //gemm<T><<<G, B>>>(c, a, b, N);
+  CPUBOX_KERNEL_2D {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  int y = blockIdx_y * blockDim_y + threadIdx_y;
+  for(int i = 0; i < k; i++) {
+    c[y * k + x] += a[y * k + i] * b[i * k + x];
+  }
+  }
 }
 
+/*
 template <typename T>
 __global__ void rand(T *a, int n) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -226,13 +308,20 @@ __global__ void rand(T *a, int n) {
   int i = curand(&state) % n;
   a[i] += i;
 }
+*/
 
 template <typename T>
 void run_rand(T* a) {
   int N = MEMSIZE / MAXTYPESIZE / 8;
   int B = BLOCKSIZE;
   int G = N / B;
-  rand<T><<<G, B>>>(a, N);
+  int n = N;
+  //rand<T><<<G, B>>>(a, N);
+  CPUBOX_KERNEL {
+  int x = blockIdx_x * blockDim_x + threadIdx_x;
+  int i = rand() % n;
+  a[i] += i;
+  }
 }
 
 double now() {
@@ -294,19 +383,15 @@ int main(int argc, char** argv) {
   _info("CUDABOX_$ MEMSIZE[%zu]MB BLOCKSIZE[%d] STRIDE[%d] SEED[%d] SPARSITY[%f]", MEMSIZE / MEGA, BLOCKSIZE, STRIDE, SEED, SPARSITY);
 
   void *h_a, *h_b, *h_c;
-  void *d_a, *d_b, *d_c;
 
   /* for vv */
   int *h_r, *h_s;
-  int *d_r, *d_s;
 
   /* for mv */
   void *h_a8;
-  void *d_a8;
 
   /* for spmv */
   int *h_ia, *h_ja;
-  int *d_ia, *d_ja;
   size_t size_ja = MEMSIZE * SPARSITY;
 
   int all = argc == 1;
@@ -345,33 +430,6 @@ int main(int argc, char** argv) {
     init_spmv(h_ia, h_ja, size_ja);
   }
 
-  _cudaerr(cudaMalloc(&d_a, MEMSIZE));
-  _cudaerr(cudaMalloc(&d_b, MEMSIZE));
-  _cudaerr(cudaMalloc(&d_c, MEMSIZE));
-
-#ifdef CUDABOX_H2D
-  _cudaerr(cudaMemcpy(d_a, h_a, MEMSIZE, cudaMemcpyHostToDevice));
-  _cudaerr(cudaMemcpy(d_b, h_b, MEMSIZE, cudaMemcpyHostToDevice));
-  _cudaerr(cudaMemcpy(d_c, h_c, MEMSIZE, cudaMemcpyHostToDevice));
-#endif
-
-  if (has_vv) {
-    _cudaerr(cudaMalloc(&d_r, MEMSIZE));
-    _cudaerr(cudaMalloc(&d_s, MEMSIZE));
-    _cudaerr(cudaMemcpy(d_r, h_r, MEMSIZE, cudaMemcpyHostToDevice));
-    _cudaerr(cudaMemcpy(d_s, h_s, MEMSIZE, cudaMemcpyHostToDevice));
-  }
-  if (has_mv) {
-    _cudaerr(cudaMalloc(&d_a8, 8 * MEMSIZE));
-    _cudaerr(cudaMemcpy(d_a8, h_a8, 8 * MEMSIZE, cudaMemcpyHostToDevice));
-  }
-  if (has_spmv) {
-    _cudaerr(cudaMalloc(&d_ia, (MEMSIZESQRT + 1) * sizeof(int)));
-    _cudaerr(cudaMalloc(&d_ja, MEMSIZE * sizeof(int) * SPARSITY));
-    _cudaerr(cudaMemcpy(d_ia, h_ia, (MEMSIZESQRT + 1) * sizeof(int), cudaMemcpyHostToDevice));
-    _cudaerr(cudaMemcpy(d_ja, h_ja, size_ja * sizeof(int), cudaMemcpyHostToDevice));
-  }
-
   for (int i = 0; i < nkernels; i++) {
     double t0 = now();
     RUN_KERNEL_INIT(kernels[i]);
@@ -386,14 +444,8 @@ int main(int argc, char** argv) {
     RUN_KERNEL3(run_gemm, c, a, b);
     RUN_KERNEL1(run_rand, c);
     RUN_KERNEL_CHECK();
-    _cudaerr(cudaGetLastError());
-    _cudaerr(cudaDeviceSynchronize());
     _info("%-10s %lf", kernel, now() - t0);
   }
-
-#ifdef CUDABOX_D2H
-  _cudaerr(cudaMemcpy(h_c, d_c, MEMSIZE, cudaMemcpyDeviceToHost));
-#endif
 
   return 0;
 }
