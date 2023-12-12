@@ -15,5 +15,5 @@ cpubox:cpubox.cpp
 	$(CXX) $(CXXFLAGS) $? -o $@
 
 clean:
-	rm -f cudabox cpubox
+	rm -f cudabox cpubox *.out
 

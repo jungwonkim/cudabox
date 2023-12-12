@@ -319,8 +319,18 @@ void run_rand(T* a) {
   //rand<T><<<G, B>>>(a, N);
   CPUBOX_KERNEL {
   int x = blockIdx_x * blockDim_x + threadIdx_x;
-  int i = rand() % n;
-  a[i] += i;
+
+  unsigned int M = 0x7fffffff;
+  unsigned int A = 48271;
+  unsigned int Q = M / A;
+  unsigned int R = M % A;
+  unsigned int div = static_cast<unsigned int>(a[x]) / Q;
+  unsigned int rem = static_cast<unsigned int>(a[x]) % Q;
+  int s = rem * A;
+  int t = div * R;
+  int result = s - t;
+  if (result < 0) result += M;
+  a[x] = static_cast<T>(result);
   }
 }
 
